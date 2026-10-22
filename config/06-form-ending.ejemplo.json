@@ -1,0 +1,5 @@
+{
+  "operation": "Form Ending / Show Completion Screen",
+  "completionTitle": "{{ $json.estado === 'APTA' ? 'Imagen APTA' : $json.estado === 'NO_APTA' ? 'Imagen NO APTA' : 'REVISIÓN MANUAL' }}",
+  "completionMessage": "{{ 'Desenfoque: ' + $json.desenfoque + '\\nMotivo: ' + $json.motivo }}"
+}

@@ -1,0 +1,21 @@
+# Secretos, datos locales y copias que no deben ir a GitHub
+.env
+.env.*
+!.env.example
+node_modules/
+.vscode/
+*.log
+*.bak
+*~
+.DS_Store
+Thumbs.db
+uploads/
+privado/
+private/
+backups/
+# No subir fotografías de documentos (aunque sean de pruebas)
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.pdf

@@ -1,0 +1,14 @@
+{
+  "model": "gemma3:4b",
+  "stream": false,
+  "format": "json",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Analiza exclusivamente el desenfoque (blur) de esta imagen de un documento NIF ficticio. No transcribas ni extraigas nombres, números ni otros datos personales. No determines autenticidad, identidad ni validez legal. Devuelve solamente un objeto JSON con los campos: estado (APTA, NO_APTA o REVISION_MANUAL), desenfoque (BAJO, MEDIO o ALTO) y motivo (explicación breve sin datos personales). Si no puedes comprobar visualmente la nitidez o tienes dudas, usa REVISION_MANUAL.",
+      "images": [
+        "BASE64_DE_LA_IMAGEN_AQUI"
+      ]
+    }
+  ]
+}

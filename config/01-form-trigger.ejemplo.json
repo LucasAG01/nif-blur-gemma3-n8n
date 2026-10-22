@@ -1,0 +1,13 @@
+{
+  "titulo": "Subir archivo",
+  "descripcion": "Añade tu documento NIF (solo ficticio para pruebas)",
+  "campo": "Imagen",
+  "tipo": "File",
+  "formatos": [
+    ".jpg",
+    ".jpeg",
+    ".png"
+  ],
+  "obligatorio": true,
+  "respond_when": "Workflow Finishes"
+}
