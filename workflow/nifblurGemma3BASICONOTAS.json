@@ -1,0 +1,391 @@
+{
+  "name": "Nitidez NIF con Gemma 3 4B local",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Subir archivo",
+        "formDescription": "Añade tu documento NIF \n",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Imagen",
+              "fieldType": "file",
+              "acceptFileTypes": ".jpg, .jpeg, .png",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "buttonLabel": "ENviar"
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        -16,
+        80
+      ],
+      "id": "c8a99b2e-3075-4c6d-8412-e30535e1cd7c",
+      "name": "On form submission",
+      "webhookId": "21697ee7-9ac4-489b-a7ab-da5848c3d842"
+    },
+    {
+      "parameters": {
+        "content": "## I'm a note \n**IMPORTANTE** \nNo anonimiza datos.\nNo configurado\n"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        368,
+        256
+      ],
+      "id": "bd172bf8-1784-4dd3-be06-b96ed92b2dae",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=\n{\n  \"model\": \"gemma3:4b\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Analiza exclusivamente el desenfoque (blur) de esta imagen. No transcribas ni extraigas datos personales. Devuelve solamente un JSON con los campos: estado (APTA, NO_APTA o REVISION_MANUAL), desenfoque (BAJO, MEDIO o ALTO) y motivo (explicación breve). Si hay dudas sobre la nitidez, utiliza REVISION_MANUAL.\",\n      \"images\": [\n        \"{{ $json.imagenBase64 }}\"\n      ]\n    }\n  ]\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        656,
+        80
+      ],
+      "id": "2f7f5b4f-16af-4c06-abdb-c0df5a8bcfdf",
+      "name": "04- Analizar blur con Gemma"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst respuesta = $input.first().json.message?.content;\n\n// Comprobar que Gemma ha respondido\nif (!respuesta) {\n  throw new Error(\"Gemma no devolvió una respuesta\");\n}\n\n// Convertir el texto JSON en un objeto JavaScript\nlet analisis;\n\ntry {\n  analisis = JSON.parse(respuesta);\n} catch (error) {\n  analisis = {\n    estado: \"REVISION_MANUAL\",\n    desenfoque: \"DESCONOCIDO\",\n    motivo: \"No se pudo interpretar la respuesta de Gemma\"\n  };\n}\n\n// Comprobar los valores recibidos\nconst estados = [\"APTA\", \"NO_APTA\", \"REVISION_MANUAL\"];\nconst niveles = [\"BAJO\", \"MEDIO\", \"ALTO\"];\n\nlet estado = estados.includes(analisis.estado)\n  ? analisis.estado\n  : \"REVISION_MANUAL\";\n\nconst desenfoque = niveles.includes(analisis.desenfoque)\n  ? analisis.desenfoque\n  : \"DESCONOCIDO\";\n\n// Evitar aprobar resultados contradictorios\nif (estado === \"APTA\" && desenfoque !== \"BAJO\") {\n  estado = \"REVISION_MANUAL\";\n}\n\n// Devolver el resultado organizado\nreturn [{\n  json: {\n    estado: estado,\n    desenfoque: desenfoque,\n    motivo: typeof analisis.motivo === \"string\"\n      ? analisis.motivo\n      : \"Se necesita revisar la imagen\"\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        80
+      ],
+      "id": "3957fb63-2726-44cb-83c0-f1ea0467a216",
+      "name": "05- Interpretar resultado"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first(); //Obtiene primer elemento enviado deel form\n\n// Accede a la imagen recibida\nconst imagen = item.binary?.Imagen;\n\n// Comprobar que existe\nif (!imagen) {\n  throw new Error(\"No se ha recibido ninguna imagen\");\n}\n\n// Comprobar el formato\nif (![\"image/jpeg\", \"image/png\"].includes(imagen.mimeType)) {\n  throw new Error(\"Formato de imagen no permitido\");\n}\n\n// Devolver los datos sin perder la imagen\nreturn [{\n  json: {\n    archivo: imagen.fileName,\n    formato: imagen.mimeType,\n    resultado: \"Imagen recibida correctamente\"\n  },\n  binary: item.binary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        80
+      ],
+      "id": "a08c120a-4b08-438d-95a2-5d7b0f05b33c",
+      "name": "02 - Validar imagen"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first();\n\n\n// Obtener los bytes de la imagen  // Recomendada DOc oficial n8n para acceder.\nconst buffer = await this.helpers.getBinaryDataBuffer(\n  0,\n  'Imagen'\n);\n\n// Comprobar tamaño máximo: 8 MiB\nif (buffer.length > 8 * 1024 * 1024) {\n  throw new Error(\"La imagen supera los 8 MiB\");\n}\n\n// Convertir la imagen a Base64\nconst imagenBase64 = buffer.toString('base64');\n\n// Preparar la salida\nreturn [{\n  json: {\n    ...item.json,\n    tamanoBytes: buffer.length,\n    imagenBase64: imagenBase64\n  },\n  binary: item.binary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        80
+      ],
+      "id": "f8ac3b00-0933-4363-b7db-5a6e4c38c1d9",
+      "name": "03 - Preparar imagen Base64",
+      "notesInFlow": true,
+      "notes": "Preparar  imagen Base64"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "= {{ $json.estado === 'APTA'   ? 'Imagen APTA'   : $json.estado === 'NO_APTA'   ? 'Imagen NO APTA'   : 'REVISIÓN MANUAL' }}",
+        "completionMessage": "=\n{{ 'Desenfoque: ' + $json.desenfoque +\n'\\nMotivo: ' + $json.motivo }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        1104,
+        80
+      ],
+      "id": "caa8ab49-39f1-45ca-95a8-886de7061638",
+      "name": "Mostrar Resultado",
+      "webhookId": "ca32fa12-bf4d-41db-8887-fdbc8cb2b6d1"
+    },
+    {
+      "parameters": {
+        "formTitle": "Subir archivo",
+        "formDescription": "Añade tu documento NIF \n",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Imagen",
+              "fieldType": "file",
+              "acceptFileTypes": ".jpg, .jpeg, .png",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "buttonLabel": "ENviar"
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        -16,
+        704
+      ],
+      "id": "a715a904-080d-4d07-81d9-84b59269532f",
+      "name": "On form submission1",
+      "webhookId": "b0e8ee77-eefc-4040-a3ff-b5d9395cb1ba"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=\n{\n  \"model\": \"gemma3:4b\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Analiza exclusivamente el desenfoque (blur) de esta imagen. No transcribas ni extraigas datos personales. Devuelve solamente un JSON con los campos: estado (APTA, NO_APTA o REVISION_MANUAL), desenfoque (BAJO, MEDIO o ALTO) y motivo (explicación breve). Si hay dudas sobre la nitidez, utiliza REVISION_MANUAL.\",\n      \"images\": [\n        \"{{ $json.imagenBase64 }}\"\n      ]\n    }\n  ]\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        656,
+        704
+      ],
+      "id": "4ff99202-2d9d-4756-8ca3-85900361da45",
+      "name": "04- Analizar blur con Gemma1"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst respuesta = $input.first().json.message?.content;\n\n// Comprobar que Gemma ha respondido\nif (!respuesta) {\n  throw new Error(\"Gemma no devolvió una respuesta\");\n}\n\n// Convertir el texto JSON en un objeto JavaScript\nlet analisis;\n\ntry {\n  analisis = JSON.parse(respuesta);\n} catch (error) {\n  analisis = {\n    estado: \"REVISION_MANUAL\",\n    desenfoque: \"DESCONOCIDO\",\n    motivo: \"No se pudo interpretar la respuesta de Gemma\"\n  };\n}\n\n// Comprobar los valores recibidos\nconst estados = [\"APTA\", \"NO_APTA\", \"REVISION_MANUAL\"];\nconst niveles = [\"BAJO\", \"MEDIO\", \"ALTO\"];\n\nlet estado = estados.includes(analisis.estado)\n  ? analisis.estado\n  : \"REVISION_MANUAL\";\n\nconst desenfoque = niveles.includes(analisis.desenfoque)\n  ? analisis.desenfoque\n  : \"DESCONOCIDO\";\n\n// Evitar aprobar resultados contradictorios\nif (estado === \"APTA\" && desenfoque !== \"BAJO\") {\n  estado = \"REVISION_MANUAL\";\n}\n\n// Devolver el resultado organizado\nreturn [{\n  json: {\n    estado: estado,\n    desenfoque: desenfoque,\n    motivo: typeof analisis.motivo === \"string\"\n      ? analisis.motivo\n      : \"Se necesita revisar la imagen\"\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        704
+      ],
+      "id": "ab12cd4e-87cc-4e75-9366-57a327d421d0",
+      "name": "05- Interpretar resultado1"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first(); //Obtiene primer elemento enviado deel form\n\n// Accede a la imagen recibida\nconst imagen = item.binary?.Imagen;\n\n// Comprobar que existe\nif (!imagen) {\n  throw new Error(\"No se ha recibido ninguna imagen\");\n}\n\n// Comprobar el formato\nif (![\"image/jpeg\", \"image/png\"].includes(imagen.mimeType)) {\n  throw new Error(\"Formato de imagen no permitido\");\n}\n\n// Devolver los datos sin perder la imagen\nreturn [{\n  json: {\n    archivo: imagen.fileName,\n    formato: imagen.mimeType,\n    resultado: \"Imagen recibida correctamente\"\n  },\n  binary: item.binary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        704
+      ],
+      "id": "d0d3ed23-f501-4ab2-af36-e38a2cf69eee",
+      "name": "02 - Validar imagen1"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first();\n\n\n// Obtener los bytes de la imagen  // Recomendada DOc oficial n8n para acceder.\nconst buffer = await this.helpers.getBinaryDataBuffer(\n  0,\n  'Imagen'\n);\n\n// Comprobar tamaño máximo: 8 MiB\nif (buffer.length > 8 * 1024 * 1024) {\n  throw new Error(\"La imagen supera los 8 MiB\");\n}\n\n// Convertir la imagen a Base64\nconst imagenBase64 = buffer.toString('base64');\n\n// Preparar la salida\nreturn [{\n  json: {\n    ...item.json,\n    tamanoBytes: buffer.length,\n    imagenBase64: imagenBase64\n  },\n  binary: item.binary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        704
+      ],
+      "id": "a0dd4352-4512-4fc7-8505-cabbee7b37f5",
+      "name": "03 - Preparar imagen Base",
+      "notesInFlow": true,
+      "notes": "Preparar  imagen Base64"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "= {{ $json.estado === 'APTA'   ? 'Imagen APTA'   : $json.estado === 'NO_APTA'   ? 'Imagen NO APTA'   : 'REVISIÓN MANUAL' }}",
+        "completionMessage": "=\n{{ 'Desenfoque: ' + $json.desenfoque +\n'\\nMotivo: ' + $json.motivo }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        1104,
+        704
+      ],
+      "id": "4c87d58b-3ae0-479f-bd4e-a8fdd30c901f",
+      "name": "Mostrar Resultado1",
+      "webhookId": "ca32fa12-bf4d-41db-8887-fdbc8cb2b6d1"
+    },
+    {
+      "parameters": {
+        "content": "## IA\nAqui se una la IA para poder analizar si efectivamente se trata de un documento o no"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        144,
+        864
+      ],
+      "id": "fcf89bf7-f91d-4808-8e4a-f24f124d816a",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Comprobar blurr\nAquí se harían las comprobaciones mediante isImageBlurry para que se haga más precido"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        576,
+        880
+      ],
+      "id": "c8e303b1-384d-44c5-a248-e7be977cc554",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Interpretar\nEl código devolverá una varianza para y ahí lo asociamos a un nivel en palabra para que el usaurio lo entienda \nMALO - BUENO - MEDIO...",
+        "height": 176
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        880,
+        880
+      ],
+      "id": "a32dde30-da60-403a-bb5a-00676ce07d4d",
+      "name": "Sticky Note3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "02 - Validar imagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04- Analizar blur con Gemma": {
+      "main": [
+        [
+          {
+            "node": "05- Interpretar resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05- Interpretar resultado": {
+      "main": [
+        [
+          {
+            "node": "Mostrar Resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 - Validar imagen": {
+      "main": [
+        [
+          {
+            "node": "03 - Preparar imagen Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 - Preparar imagen Base64": {
+      "main": [
+        [
+          {
+            "node": "04- Analizar blur con Gemma",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission1": {
+      "main": [
+        [
+          {
+            "node": "02 - Validar imagen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04- Analizar blur con Gemma1": {
+      "main": [
+        [
+          {
+            "node": "05- Interpretar resultado1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05- Interpretar resultado1": {
+      "main": [
+        [
+          {
+            "node": "Mostrar Resultado1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 - Validar imagen1": {
+      "main": [
+        [
+          {
+            "node": "03 - Preparar imagen Base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 - Preparar imagen Base": {
+      "main": [
+        [
+          {
+            "node": "04- Analizar blur con Gemma1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "745c5330-cd51-403a-9d88-d835215ad858",
+  "meta": {
+    "instanceId": "d595ca6c77bde519dae37f2b7f75cd3e39c483183d41b7d9b2f02538a90b5fa3"
+  },
+  "nodeGroups": [],
+  "id": "Q7qKjP6PtuJ3x9OD",
+  "tags": []
+}
