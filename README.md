@@ -53,7 +53,7 @@ nif-blur-gemma3-n8n/
 │   ├── 05-respuesta.ejemplo.json
 │   └── 06-form-ending.ejemplo.json
 ├── workflow/
-│   ├── nif-blur-gemma3-4b_RECONSTRUIDO.json
+│   ├── nifblurGemma3BASICONOTAS.json
 │   └── LEEME.md
 └── docs/
     └── FAQ.md
