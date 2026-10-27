@@ -1,0 +1,1 @@
+feat(n8n): añadir workflow nifOllamaGemma y separar código de 16 nodos
