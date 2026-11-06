@@ -4,16 +4,44 @@ OBJETIVO:
 Determina si la imagen contiene un documento oficial de identidad admitido y si su presentación permite continuar el procesamiento.
 
 DOCUMENTOS ADMITIDOS:
-- DNI_NIF: Documento Nacional de Identidad español.
-- TIE_NIE: Tarjeta de Identidad de Extranjero española.
+
+A) España:
+- DNI_NIF: Documento Nacional de Identidad.
+- TIE_NIE: Tarjeta de Identidad de Extranjero.
 - CERTIFICADO_NIE: Certificado oficial español de asignación del NIE.
 - DOCUMENTO_NIF: Otro documento oficial español de acreditación del NIF.
-- PASAPORTE: Pasaporte oficial de cualquier país, español o extranjero.
+- PASAPORTE: Pasaporte oficial español.
+
+B) América Latina:
+- ID_LATAM: Documento oficial de identidad emitido por un país de América Latina. Incluye, entre otros:
+  • Argentina: DNI (tarjeta o libreta).
+  • Perú: DNI.
+  • Chile: Cédula de Identidad.
+  • Colombia: Cédula de Ciudadanía / Cédula de Extranjería.
+  • Ecuador, Uruguay, Paraguay, Bolivia, Venezuela, Costa Rica, Nicaragua, Panamá: Cédula de Identidad.
+  • México: Credencial para Votar (INE) u otro documento oficial de identificación.
+  • El Salvador: DUI.
+  • Guatemala: DPI.
+  • Honduras: DNI.
+  • República Dominicana: Cédula de Identidad y Electoral.
+  • Brasil: RG (Cédula de Identidade) u outro documento oficial de identificação.
+  • Cuba: Carné de Identidad.
+  • Carnés de extranjería o residencia emitidos por cualquiera de estos países.
+- PASAPORTE: Pasaporte oficial de cualquier país latinoamericano.
+
+C) Pasaportes de cualquier otro país, español o extranjero: PASAPORTE.
+
+No inventes documentos. Una fotografía de una persona, una mano levantada o un objeto cualquiera no demuestra que exista un pasaporte, DNI o cédula.
 
 FASE 1 - IDENTIFICAR EL DOCUMENTO:
-Comprueba que realmente aparece un documento reconocible mediante su estructura, encabezados, distribución de campos, elementos gráficos y zona MRZ cuando corresponda.
+Comprueba que realmente aparece un documento reconocible mediante su estructura, encabezados, distribución de campos, elementos gráficos, escudos/banderas, numeración y zona MRZ cuando corresponda.
 
-No inventes documentos. Una fotografía de una persona, una mano levantada o un objeto cualquiera no demuestra que exista un pasaporte o DNI.
+Consideraciones para documentos latinoamericanos:
+- Pueden presentarse como tarjeta plástica, credencial plastificada o libreta (p. ej. DNI argentino en formato libreta, RG brasileño antiguo).
+- Pueden estar redactados en español o en portugués.
+- No todos incluyen MRZ; su ausencia no invalida el documento.
+- Los elementos de seguridad (hologramas, fondos guilloché, microtexto, escudos) son parte del documento y no cuentan como manos ni como personas externas.
+- Una licencia de conducir solo se acepta si el propio documento se presenta como documento nacional de identidad; en caso de duda, utiliza REVISION_MANUAL.
 
 FASE 2 - COMPROBAR LA PRESENTACIÓN:
 Analiza cuatro características visuales independientes:
@@ -30,20 +58,21 @@ REGLAS ESPECIALES PARA ESCANEOS:
 - Un escaneo puede mostrar únicamente el documento, ocupando toda la imagen y sin fondo visible.
 - No es obligatorio que aparezca una mesa, superficie o espacio alrededor del documento.
 - No supongas que una persona sostiene el documento porque no aparezca el entorno.
-- Si un escaneo muestra el anverso y reverso del mismo DNI, puede aceptarse como imagen compuesta si ambos son reconocibles.
+- Si un escaneo muestra el anverso y reverso del mismo documento (DNI, cédula, INE, DUI, DPI, RG, etc.), puede aceptarse como imagen compuesta si ambos lados son reconocibles.
 - La ausencia de un fondo visible NO justifica clasificar una mano como presente ni utilizar REVISION_MANUAL.
 - Comprueba la integridad del documento sin exigir márgenes exteriores innecesarios.
+- En documentos en formato libreta (p. ej. DNI argentino, RG brasileño antiguo), es suficiente con que se vea la página de datos personales; el resto de la libreta no es obligatorio.
 
 REGLAS CRÍTICAS SOBRE MANOS:
 - Para devolver mano_externa_visible=true debe existir evidencia visual clara de una mano o dedos humanos reales.
 - Revisa especialmente los bordes y esquinas cuando haya elementos externos visibles.
-- El chip electrónico dorado de un DNI NO es una mano.
+- El chip electrónico dorado de un DNI, cédula o pasaporte NO es una mano.
 - Los sellos, hologramas, firmas, sombras, fotografías impresas y gráficos del documento NO son manos externas.
-- No confundas un rectángulo dorado, una zona de color o un elemento de seguridad con dedos humanos.
+- No confundas un rectángulo dorado, una zona de color, un escudo, una bandera o un elemento de seguridad con dedos humanos.
 - No inventes manos fuera del encuadre.
 - Si no observas ninguna mano externa, devuelve false.
 - Utiliza null solamente si existe un elemento visual concreto que realmente resulte ambiguo.
-- Una mano real sujetando un pasaporte o DNI debe producir mano_externa_visible=true.
+- Una mano real sujetando un pasaporte, DNI, cédula, INE, DUI, DPI o RG debe producir mano_externa_visible=true.
 
 REGLAS SOBRE PERSONAS Y ROSTROS:
 - La fotografía impresa del titular dentro de un documento está permitida.
@@ -53,14 +82,14 @@ REGLAS SOBRE PERSONAS Y ROSTROS:
 - Una persona real sosteniendo un documento incumple las condiciones de presentación.
 
 CONDICIONES DE ACEPTACIÓN:
-- Debe aparecer un documento oficial admitido y reconocible.
+- Debe aparecer un documento oficial admitido (español o latinoamericano) y reconocible.
 - Debe estar completo, sin partes esenciales ocultas.
 - Puede estar escaneado directamente o fotografiado sobre una superficie.
 - No deben observarse manos reales externas sujetando o tapando el documento.
 - No deben observarse personas o rostros reales fuera del documento.
 - No debe haber otros objetos que oculten información esencial.
 - Para pasaportes, debe mostrarse la página de identificación del titular; una cubierta cerrada no es suficiente.
-- Acepta pasaportes de cualquier país sin discriminación por nacionalidad.
+- Acepta pasaportes y documentos de identidad de cualquier país sin discriminación por nacionalidad.
 
 LIMITACIONES:
 - No determines si el documento es auténtico, está vigente o es legalmente válido.
@@ -89,7 +118,7 @@ FORMATO DE RESPUESTA:
 Devuelve exclusivamente un objeto JSON válido con exactamente estas siete propiedades:
 {
   "estado": "APTA | NO_APTA | REVISION_MANUAL",
-  "tipo_documento": "DNI_NIF | TIE_NIE | CERTIFICADO_NIE | DOCUMENTO_NIF | PASAPORTE | OTRO | INDETERMINADO",
+  "tipo_documento": "DNI_NIF | TIE_NIE | CERTIFICADO_NIE | DOCUMENTO_NIF | PASAPORTE | ID_LATAM | OTRO | INDETERMINADO",
   "documento_visible": null,
   "documento_completo": null,
   "mano_externa_visible": null,
