@@ -227,3 +227,14 @@ Consulta el [listado de pendientes](docs/PENDIENTES_nifOllamaGemma.md) para más
 **Utiliza únicamente imágenes sintéticas o documentos de prueba autorizados.** Base64 **no anonimiza** el contenido; n8n puede conservar entradas y salidas en el historial de ejecuciones. No publiques datos personales, fotografías reales, contraseñas, credenciales ni archivos `.env` en GitHub.
 
 Este es un **proyecto formativo**, no un sistema de verificación de identidad, autenticidad documental ni validez jurídica.
+
+## Versión Qwen3-VL — 10/11/2026
+
+**Versión organizada para utilizar y estudiar el workflow completo.**
+
+- [Empezar aquí: versión Qwen](versiones/v2026-11-10-qwen/README.md)
+- [Mapa de nodos y archivos](versiones/v2026-11-10-qwen/docs/MAPA_NODOS.md)
+- [Instalación y uso](versiones/v2026-11-10-qwen/docs/INSTALACION_Y_USO.md)
+- [Archivos anteriores conservados](versiones/v2026-11-10-qwen/docs/REFERENCIAS_ANTERIORES.md)
+
+Las versiones anteriores se conservan para consulta y comparación.
