@@ -1,0 +1,874 @@
+{
+  "name": "api-validacion-documental",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const datosEntrada = $input.first();\n\nconst imagen = datosEntrada.binary?.Imagen;\n\nif (!imagen) {\n  throw new Error(\"No se ha recibido ninguna imagen\");\n}\n\nif (![\"image/jpeg\", \"image/png\"].includes(imagen.mimeType)) {\n  throw new Error(\"Formato de imagen no permitido\");\n}\n\nreturn [{\n  json: {\n    archivo: imagen.fileName,\n    formato: imagen.mimeType,\n    resultado: \"Imagen recibida correctamente\",\n    intentos: Number(datosEntrada.json.intentos ?? 0)\n  },\n  binary: datosEntrada.binary\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        224
+      ],
+      "id": "e9fd0b57-eea9-4f7c-b881-8d994b30a13a",
+      "name": "02 - Comprobar formato y tamaño1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nif (!item.binary?.Imagen) throw new Error('Falta la imagen');\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'Imagen');\nif (buffer.length > 8 * 1024 * 1024) throw new Error('La imagen supera los 8 MiB');\nreturn [{json:{...item.json, tamanoBytes:buffer.length, imagenBase64:buffer.toString('base64'), intentos:0},binary:item.binary}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        32
+      ],
+      "id": "a001c840-faf3-476b-903f-e0d9a851819a",
+      "name": "03 - Preparar imagen Base66",
+      "notesInFlow": true,
+      "notes": "Preparar  imagen Base64"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"qwen3-vl:4b-instruct\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"options\": {\n    \"num_ctx\": 8192,\n    \"temperature\": 0\n  },\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Eres un FILTRO VISUAL previo a la extracción de datos de documentos oficiales de identidad. NO extraigas nombres, números ni fechas. Decide si la imagen contiene un documento reconocible y si puede pasar a extracción.\\n\\nÁMBITO INTERNACIONAL:\\nAdmite documentos oficiales de identidad de cualquier país, idioma y formato: identidades nacionales, tarjetas de identificación de extranjeros, documentos oficiales de residencia con función identificativa y páginas de datos de pasaportes. Acepta documentos antiguos, tarjetas y libretas.\\n\\nCATEGORÍAS PERMITIDAS (solo estos valores):\\n- DNI_NIF: DNI español.\\n- TIE_NIE: documentos españoles de identificación de extranjeros, TIE y certificados NIE.\\n- ID_NACIONAL: identificación nacional oficial de cualquier otro país (Cartão de Cidadão portugués, Personalausweis alemán, cédulas latinoamericanas, etc.).\\n- PASAPORTE: página de datos personales de un pasaporte de cualquier país.\\n- OTRO: imagen que claramente no contiene un documento admitido.\\n- INDETERMINADO: parece haber un documento, pero no se identifica con seguridad.\\nNo utilices denominaciones específicas como CARTAO_CIDADAO como tipo_documento; clasifica como ID_NACIONAL. No confundas idioma con país emisor.\\n\\nCOMPROBACIÓN VISUAL:\\n1. Debe existir evidencia visual de documento oficial, no una tarjeta genérica, dibujo, aplicación o selfie sin documento.\\n2. Evalúa las zonas esenciales de la cara o página presentada; no exijas anverso y reverso juntos ni bordes exteriores si no faltan datos.\\n3. En pasaportes exige la página de identificación, no la cubierta cerrada.\\n4. Acepta escaneos y fotos sobre mesa o sujetadas con mano si los campos esenciales están visibles.\\n5. Una mano en el borde, una persona cercana o el fondo NO causan rechazo por sí mismos. Solo rechaza si ocultan campos esenciales. Una mano aislada no cuenta como persona externa; la foto impresa del titular tampoco.\\n6. El chip, hologramas, firma y marcas de agua no son manos externas.\\n7. Sharp evaluará la nitidez posteriormente. No calcules una métrica de desenfoque.\\n\\nREGLA CRÍTICA SOBRE INFORMACIÓN OBLIGATORIA:\\nAntes de decidir APTA, examina por separado el NÚMERO PRINCIPAL, el NOMBRE y los APELLIDOS.\\n- Si alguno de los caracteres del número principal está tapado, censurado, recortado o fuera de cuadro, numero_principal_completo=false y estado=NO_APTA.\\n- Si nombre o apellidos están parcialmente tapados, censurados o recortados, documento_completo=false y estado=NO_APTA.\\n- Busca específicamente rectángulos opacos, franjas uniformes, pegatinas, dedos y objetos que cubran zonas de texto.\\n- No confundas que el diseño del documento sea reconocible con que su información obligatoria sea visible.\\n- No intentes adivinar caracteres ocultos. Si no puedes determinar si el número está completo, numero_principal_completo=null y estado=REVISION_MANUAL.\\n- Si numero_principal_completo=false, documento_completo=false aunque la imagen sea nítida y el resto de la tarjeta esté visible.\\n- Si todos los caracteres del número se ven sin obstrucción, numero_principal_completo=true. Esto NO significa verificar que el número sea auténtico.\\n\\nESTADOS:\\n- APTA: documento admitido, número principal completamente visible, nombre y apellidos visibles y zonas esenciales sin obstrucciones. Puede haber manos/personas externas si no tapan datos.\\n- NO_APTA: imagen claramente sin documento admitido, o datos obligatorios tapados, recortados u ocultos.\\n- REVISION_MANUAL: no puedes determinar el tipo o si los campos esenciales están completamente visibles. No uses este estado solo porque aparezca una mano.\\n\\nINDICADORES:\\n- documento_visible: true si reconoces el documento, false si claramente no existe, null si hay incertidumbre.\\n- documento_completo: true solo cuando los campos esenciales de la cara presentada están visibles; false si falta alguno o está oculto; null si no puedes comprobarlo.\\n- numero_principal_completo: true si el identificador principal está íntegramente visible sin caracteres tapados; false si faltan caracteres por censura, recorte u obstrucción; null si existe duda.\\n- mano_externa_visible: true si se ve una mano real fuera del documento aunque no obstruya, false si no, null si es ambiguo.\\n- persona_externa_visible: true si se ve una persona real fuera del documento (excluye la mano aislada y retratos impresos), false si no, null si es ambiguo.\\n\\nCOHERENCIA:\\n- Puede haber documento_visible=true y documento_completo=false.\\n- NO devuelvas APTA si numero_principal_completo no es true.\\n- Si numero_principal_completo=false, devuelve NO_APTA y explica la obstrucción en motivo sin reproducir datos personales.\\n- Si numero_principal_completo=null, devuelve REVISION_MANUAL.\\n- Si no hay documento admitido, devuelve NO_APTA, tipo_documento=OTRO, documento_visible=false y documento_completo=false.\\n- Si no puedes reconocer el tipo, devuelve INDETERMINADO y REVISION_MANUAL.\\n- No afirmes autenticidad ni validez legal, ni incluyas datos personales en motivo.\\n\\nEJEMPLO DE RECHAZO:\\nUn DNI cuyo número principal tiene caracteres cubiertos por un rectángulo gris debe clasificarse DNI_NIF, documento_visible=true, documento_completo=false, numero_principal_completo=false y estado=NO_APTA.\\n\\nFORMATO:\\nDevuelve EXCLUSIVAMENTE JSON válido con EXACTAMENTE estas ocho propiedades (los valores son ilustrativos y NO predeterminados):\\n{\\n  \\\"estado\\\": \\\"APTA\\\",\\n  \\\"tipo_documento\\\": \\\"ID_NACIONAL\\\",\\n  \\\"documento_visible\\\": true,\\n  \\\"documento_completo\\\": true,\\n  \\\"numero_principal_completo\\\": true,\\n  \\\"mano_externa_visible\\\": false,\\n  \\\"persona_externa_visible\\\": false,\\n  \\\"motivo\\\": \\\"Descripción visual breve, objetiva y sin datos personales\\\"\\n}\\n\\nUsa solo APTA, NO_APTA o REVISION_MANUAL; solo DNI_NIF, TIE_NIE, ID_NACIONAL, PASAPORTE, OTRO o INDETERMINADO; y booleanos reales o null en indicadores. No añadas campos, comentarios ni Markdown.\",\n      \"images\": [\n        \"{{ $json.imagenBase64 }}\"\n      ]\n    }\n  ]\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1232,
+        352
+      ],
+      "id": "74687db5-4a05-4ccb-82fa-12b982fb8fac",
+      "name": "03- Analizar si es un NIF1"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst respuesta = $input.first().json.message?.content;\nconst origen = $(\"03 - Preparar imagen Base66\").first();\n\nlet documento;\nlet errorInterpretacion = null;\n\ntry {\n  if (typeof respuesta !== \"string\" || !respuesta.trim()) {\n    throw new Error(\"Respuesta vacía\");\n  }\n\n  const limpio = respuesta\n    .trim()\n    .replace(/^```(?:json)?\\s*/i, \"\")\n    .replace(/\\s*```$/, \"\")\n    .trim();\n\n  documento = JSON.parse(limpio);\n\n  if (\n    !documento ||\n    typeof documento !== \"object\" ||\n    Array.isArray(documento)\n  ) {\n    throw new Error(\"Respuesta JSON incorrecta\");\n  }\n\n} catch (error) {\n  errorInterpretacion = error.message;\n\n  documento = {\n    estado: \"REVISION_MANUAL\",\n    tipo_documento: \"INDETERMINADO\",\n    motivo: \"No se pudo interpretar la respuesta de la IA\",\n    documento_visible: null,\n    documento_completo: null,\n    numero_principal_completo: null,\n    mano_externa_visible: null,\n    persona_externa_visible: null\n  };\n}\n\n// 1. Normalizar valores\nconst estadoIA = String(documento.estado ?? \"\")\n  .trim()\n  .toUpperCase();\n\nconst tipoDocumento = String(documento.tipo_documento ?? \"\")\n  .trim()\n  .toUpperCase();\n\nconst documentoVisible =\n  documento.documento_visible === true;\n\nconst documentoCompleto =\n  documento.documento_completo === true;\n\nconst numeroPrincipalCompleto =\n  documento.numero_principal_completo === true;\n\nconst manoVisible =\n  documento.mano_externa_visible === true;\n\nconst personaVisible =\n  documento.persona_externa_visible === true;\n\n// 2. Comprobar categoría documental\nconst tiposAdmitidos = [\n  \"DNI_NIF\",\n  \"TIE_NIE\",\n  \"ID_NACIONAL\",\n  \"PASAPORTE\"\n];\n\nconst tipoAdmitido =\n  tiposAdmitidos.includes(tipoDocumento);\n\n// 3. Comprobar que se puede procesar\n// Las manos y personas externas no provocan\n// rechazo automático si no ocultan información.\nconst documentoProcesable =\n  documentoVisible &&\n  documentoCompleto &&\n  numeroPrincipalCompleto &&\n  tipoAdmitido &&\n  estadoIA === \"APTA\";\n\n// 4. Decidir estado\nlet estado;\n\nif (\n  documento.documento_visible === false ||\n  documento.documento_completo === false ||\n  documento.numero_principal_completo === false ||\n  estadoIA === \"NO_APTA\"\n) {\n  // Documento ausente, incompleto o con\n  // datos esenciales ocultos.\n  estado = \"NO_APTA\";\n\n} else if (\n  !tipoAdmitido ||\n  documento.numero_principal_completo !== true ||\n  !documentoVisible ||\n  !documentoCompleto ||\n  estadoIA !== \"APTA\"\n) {\n  // Información insuficiente o incierta.\n  // No se permite continuar automáticamente.\n  estado = \"REVISION_MANUAL\";\n\n} else {\n  // Todos los requisitos cumplidos.\n  estado = \"APTA\";\n}\n\nconst intentos =\n  Number(origen.json.intentos ?? 0) + 1;\n\n// 5. Devolver resultado\nreturn [{\n  json: {\n    ...documento,\n\n    tipo_documento: tipoDocumento,\n\n    estadoOriginalIA: estadoIA,\n    estado,\n\n    tipoAdmitido,\n    numeroPrincipalCompleto,\n    documentoReconocido: tipoAdmitido,\n    presentacionCorrecta: documentoProcesable,\n    documentoProcesable,\n\n    manoVisible,\n    personaVisible,\n\n    errorInterpretacion,\n\n    intentos,\n    imagenAnalizada: \"intento_1\"\n  },\n\n  binary: origen.binary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        416
+      ],
+      "id": "0b694243-033b-4786-bcf9-4c1318a7556c",
+      "name": "Interpretar respuesta1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "bc562bbd-3f74-4fa3-a725-8114beeb0977",
+              "leftValue": "={{ $json.documentoReconocido }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "05c1ef1c-ec58-4860-860c-3ff8fa8e6422",
+              "leftValue": "={{ $json.intentos }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1776,
+        400
+      ],
+      "id": "a23773bb-bc02-4a2a-aa4c-1f5654e60930",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst sharp = require(\"sharp\");\n\nconst item = $input.first();\n\n// CONFIGURACIÓN\nconst TARGET_SIZE = 512;\nconst BLUR_THRESHOLD = 220;\n\n// Comprobar que llega una imagen\nif (!item.binary?.Imagen) {\n  throw new Error(\"Sharp no recibió la imagen aprobada\");\n}\n\n// Recuperar los bytes de la imagen actual\nconst buffer = await this.helpers.getBinaryDataBuffer(\n  0,\n  \"Imagen\"\n);\n\n// Obtener dimensiones originales\nconst metadata = await sharp(buffer).metadata();\n\n// Normalizar a 512x512\nconst { data, info } = await sharp(buffer)\n  .rotate()\n  .resize(TARGET_SIZE, TARGET_SIZE, {\n    fit: \"fill\",\n    kernel: \"cubic\"\n  })\n  .toColourspace(\"srgb\")\n  .removeAlpha()\n  .raw()\n  .toBuffer({ resolveWithObject: true });\n\n// Convertir a escala de grises\nconst gray = new Float32Array(\n  TARGET_SIZE * TARGET_SIZE\n);\n\nfor (let p = 0; p < gray.length; p++) {\n  const i = p * info.channels;\n\n  gray[p] =\n    0.299 * data[i] +\n    0.587 * data[i + 1] +\n    0.114 * data[i + 2];\n}\n\n// Calcular varianza del Laplaciano\nlet sum = 0;\nlet sumSq = 0;\nlet n = 0;\n\nfor (let y = 1; y < TARGET_SIZE - 1; y++) {\n  const row = y * TARGET_SIZE;\n\n  for (let x = 1; x < TARGET_SIZE - 1; x++) {\n    const i = row + x;\n\n    const v =\n      4 * gray[i] -\n      gray[i - 1] -\n      gray[i + 1] -\n      gray[i - TARGET_SIZE] -\n      gray[i + TARGET_SIZE];\n\n    sum += v;\n    sumSq += v * v;\n    n++;\n  }\n}\n\nconst mean = n ? sum / n : 0;\n\nconst variance = n\n  ? sumSq / n - mean * mean\n  : 0;\n\n// Clasificar nitidez\nconst borrosa = variance < BLUR_THRESHOLD;\n\nreturn [{\n  json: {\n    ...item.json,\n    valida: !borrosa,\n    estadoNitidez: borrosa ? \"BORROSA\" : \"NITIDA\",\n    varianza: Number(variance.toFixed(2)),\n    umbral: BLUR_THRESHOLD,\n    dimensionesOriginales:\n      `${metadata.width}x${metadata.height}`,\n    dimensionesAnalisis: \"512x512\",\n    motivoNitidez: borrosa\n      ? \"La imagen no supera el umbral de nitidez.\"\n      : \"La imagen supera el umbral de nitidez.\"\n  },\n  binary: item.binary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2224,
+        64
+      ],
+      "id": "f6a7f54c-2d2e-449f-8b6f-6b51c505171a",
+      "name": "03 - Ejecución validate1",
+      "notesInFlow": true,
+      "notes": "\n"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "c9d862d1-9546-485c-bb7f-bb75c13a1be1",
+              "leftValue": "={{ $json.valida }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        2528,
+        144
+      ],
+      "id": "e8f7bf02-6546-4135-8ec9-7b8fe257a762",
+      "name": "If Valida o NO1"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first();\n\n// Utilizar la fotografía que ha pasado Sharp\nif (!item.binary?.Imagen) {\n  throw new Error(\n    \"No se recibió la imagen validada\"\n  );\n}\n\n// Mantener los resultados y la imagen correcta\nreturn [{\n  json: {\n    ...item.json\n  },\n  binary: item.binary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2848,
+        16
+      ],
+      "id": "73dc2cc5-6656-4ad6-be5d-757a2c3689bd",
+      "name": "Extraccion a json de datos1"
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "qwen3-vl:4b-instruct",
+          "mode": "list",
+          "cachedResultName": "qwen3-vl:4b-instruct"
+        },
+        "text": "=Eres un sistema especializado en extracción visual de datos de documentos oficiales de identidad de cualquier país.\n\nOBJETIVO:\nExtraer exclusivamente información visible y legible de la imagen, sin inventar, completar ni deducir caracteres ocultos.\n\nDOCUMENTOS ADMITIDOS:\n- Documentos nacionales de identidad de cualquier país.\n- DNI, NIE y TIE españoles.\n- Cartão de Cidadão portugués.\n- Cédulas y tarjetas de identidad latinoamericanas.\n- Pasaportes internacionales.\n- Documentos oficiales de identidad y residencia de extranjeros.\n\nREGLAS GENERALES:\n1. Extrae únicamente información visible.\n2. Si un campo no existe o no se lee completamente, devuelve null.\n3. Respeta letras, números, acentos y separadores.\n4. No inventes caracteres ni reconstruyas partes tapadas.\n5. Distingue identificador personal, número de documento y número de soporte.\n6. Las manos o personas que no tapen datos no impiden la extracción.\n7. No confundas el retrato impreso con una persona externa.\n8. No determines autenticidad, vigencia ni validez legal.\n9. Devuelve exclusivamente JSON válido.\n\nTIPO DE DOCUMENTO:\n- DNI_NIF: DNI español.\n- TIE_NIE: documentación española de identificación de extranjeros.\n- ID_NACIONAL: documento de identidad de cualquier otro país.\n- PASAPORTE: pasaporte de cualquier país.\n- OTRO: documento diferente de los admitidos.\n- INDETERMINADO: no se identifica el tipo con seguridad.\n\nEjemplos: Cartão de Cidadão portugués, cédula chilena y Personalausweis alemán -> ID_NACIONAL. DNI español -> DNI_NIF. Pasaporte británico o español -> PASAPORTE.\n\nPAÍS EMISOR:\nDevuelve el código ISO 3166-1 alfa-3 del país emisor si se puede identificar. Ejemplos: ESP, PRT, CHL, BRA, GBR, DEU. No lo confundas con nacionalidad.\n\nIDENTIFICADORES:\n- numero_documento: número del documento expedido, mostrado junto a etiquetas como DOCUMENT NUMBER, PASSPORT NO., NÚMERO DOCUMENTO o DNI. Si no puedes leerlo completo, null.\n- identificador_personal: identificador de la persona, cuando esté identificado explícitamente (RUN/RUT, CPF, NIF, PERSONAL NUMBER u otro equivalente). Quita mentalmente la etiqueta al extraer el valor: no incluyas el prefijo textual RUN, RUT, CPF o NIF. Si no existe un identificador separado o no puede identificarse con seguridad, null. La MRZ nunca es por sí sola un identificador personal.\n- numero_soporte: identificador adicional del soporte físico o administrativo, solo si está señalado con suficiente claridad. No inventes este campo a partir de un número sin etiqueta.\nConserva los caracteres visibles y los separadores de los números sin añadir ni deducir caracteres.\n\nNOMBRES Y APELLIDOS:\nConserva el orden y acentos. Si hay varios apellidos, únelos en apellidos. No traduzcas nombres propios. Un dato parcialmente oculto es null.\n\nFECHAS:\nUsa AAAA-MM-DD para fecha_nacimiento y fecha_caducidad. Si no puedes leer o interpretar una fecha, null. La fecha de caducidad es informativa: NO decidas si el documento puede aceptarse por estar vencido.\n\nNACIONALIDAD:\nDevuelve el código ISO alfa-3 cuando pueda identificarse con seguridad. Ejemplos: nacionalidad CHILENA -> CHL; BRITISH CITIZEN -> GBR; ESPAÑOLA -> ESP. Si no puedes determinarla, null. No confundas nacionalidad con país emisor.\n\nMRZ DE PASAPORTES — DOS CAMPOS ADICIONALES:\nCuando tipo_documento sea PASAPORTE, observa la zona de lectura mecánica (MRZ), normalmente en la parte inferior de la página de datos.\nEn pasaportes TD3 ordinarios la MRZ tiene exactamente DOS líneas de 44 caracteres cada una, compuestas únicamente de letras mayúsculas A-Z, números 0-9 y el carácter <.\n- mrz_linea_1: transcribe literalmente la primera línea completa (normalmente empieza por P<), incluidos todos los caracteres < de relleno.\n- mrz_linea_2: transcribe literalmente la segunda línea completa, incluidos todos los caracteres < y dígitos de control.\n- NO añadas espacios, saltos de línea dentro de un campo, puntuación ni etiquetas de campo.\n- NO reconstruyas caracteres ocultos, borrosos o fuera del encuadre.\n- Si una línea está cortada, incompleta o hay algún carácter ilegible, devuelve null para ESA línea. Nunca la rellenes con símbolos < inventados.\n- Si no se ven las líneas MRZ, devuelve null en ambos campos.\n- Para documentos distintos de pasaportes, devuelve null en ambos campos (no transcribas otras MRZ en esta fase).\n- La validación de longitud, dígitos de control y coherencia se realizará posteriormente en JavaScript; no inventes resultados de validación.\n- El texto de la MRZ NO debe copiarse al campo identificador_personal.\n\nFORMATO DE RESPUESTA:\nDevuelve exclusivamente un objeto JSON con EXACTAMENTE estas doce propiedades:\n{\n  \"tipo_documento\": null,\n  \"pais_emisor\": null,\n  \"numero_documento\": null,\n  \"identificador_personal\": null,\n  \"numero_soporte\": null,\n  \"nombre\": null,\n  \"apellidos\": null,\n  \"fecha_nacimiento\": null,\n  \"fecha_caducidad\": null,\n  \"nacionalidad\": null,\n  \"mrz_linea_1\": null,\n  \"mrz_linea_2\": null\n}\n\nRESTRICCIONES FINALES:\n- Mantén exactamente las doce propiedades, sin añadir ninguna.\n- Usa null para información ausente, incompleta o ilegible.\n- Nunca completes números ni líneas MRZ parcialmente ocultos.\n- No añadas explicaciones, comentarios, Markdown ni texto fuera del JSON.",
+        "binaryPropertyName": "Imagen",
+        "options": {
+          "temperature": 0,
+          "format": "json"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.ollama",
+      "typeVersion": 1,
+      "position": [
+        4096,
+        -240
+      ],
+      "id": "09f0ecd6-e277-4441-895e-0058aaa6d3a2",
+      "name": "Analyze image1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "MjLNR4lkpqBLR6rz",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst contenido = $input.first().json.content;\n\n// Recuperar los resultados de Sharp.\nconst nitidez = $(\"03 - Ejecución validate1\").first().json;\n\nlet datosExtraidos = null;\nlet errorExtraccion = null;\n\ntry {\n  if (typeof contenido !== \"string\" || !contenido.trim()) {\n    throw new Error(\"La IA no devolvió texto\");\n  }\n\n  const limpio = contenido\n    .trim()\n    .replace(/^```(?:json)?\\s*/i, \"\")\n    .replace(/\\s*```$/, \"\")\n    .trim();\n\n  datosExtraidos = JSON.parse(limpio);\n\n  if (\n    !datosExtraidos ||\n    typeof datosExtraidos !== \"object\" ||\n    Array.isArray(datosExtraidos)\n  ) {\n    throw new Error(\"La respuesta no es un objeto JSON\");\n  }\n\n  // Comprobar que es una respuesta de extracción.\n  const clavesPrincipales = [\n    \"tipo_documento\",\n    \"numero_documento\",\n    \"nombre\",\n    \"apellidos\"\n  ];\n\n  if (!clavesPrincipales.some(\n    campo => Object.prototype.hasOwnProperty.call(\n      datosExtraidos,\n      campo\n    )\n  )) {\n    throw new Error(\"La respuesta no tiene el esquema esperado\");\n  }\n\n  // NUEVO: identificador personal independiente.\n  // Si la IA no lo ha extraído, utilizamos null.\n  const identificadorPersonal =\n    datosExtraidos.identificador_personal;\n\n  datosExtraidos.identificador_personal =\n    typeof identificadorPersonal === \"string\" &&\n    identificadorPersonal.trim()\n      ? identificadorPersonal.trim()\n      : null;\n\n  // Normalizar campos adicionales sin inventar datos.\n  for (const campo of [\n    \"numero_documento\",\n    \"numero_soporte\"\n  ]) {\n    if (\n      typeof datosExtraidos[campo] !== \"string\" ||\n      !datosExtraidos[campo].trim()\n    ) {\n      datosExtraidos[campo] = null;\n    }\n  }\n\n} catch (error) {\n  errorExtraccion = error.message;\n  datosExtraidos = null;\n}\n\n// Determinar estado de la extracción.\nlet estadoFinal;\n\nif (nitidez.valida !== true) {\n  estadoFinal = \"REVISIÓN MANUAL\";\n\n} else if (errorExtraccion) {\n  estadoFinal = \"ERROR DE EXTRACCIÓN\";\n\n} else {\n  estadoFinal = \"EXTRACCIÓN FINALIZADA\";\n}\n\n// Conservar información para los siguientes nodos.\nreturn [{\n  json: {\n    ...nitidez,\n    datosExtraidos,\n    errorExtraccion,\n    estadoFinal,\n    verificacionPendiente: true\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4288,
+        272
+      ],
+      "id": "c032f715-af0f-4b7f-a7f4-6394b5a5cb2e",
+      "name": "preparar resultado final"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first();\nconst datos = item.json.datosExtraidos;\n\n// 1. Comprobar los datos extraídos\nif (\n  !datos ||\n  typeof datos !== \"object\" ||\n  Array.isArray(datos)\n) {\n  return [{\n    json: {\n      ...item.json,\n      registroNoSQL: null,\n      jsonParaMostrar: \"Extracción no disponible\",\n      estadoFinal: \"REVISIÓN MANUAL\",\n      verificacionPendiente: true\n    }\n  }];\n}\n\n// 2. Obtener textos sin inventar valores\nconst texto = (campo) => {\n  const valor = datos[campo];\n\n  return typeof valor === \"string\" && valor.trim()\n    ? valor.trim()\n    : null;\n};\n\nconst tipoDocumento = texto(\"tipo_documento\");\n\nconst paisEmisor =\n  texto(\"pais_emisor\") ??\n  (tipoDocumento === \"DNI_NIF\" ? \"ESP\" : null);\n\n// 3. Limpiar identificadores personales\nfunction limpiarIdentificador(valor, pais) {\n  if (!valor) return null;\n\n  let limpio = valor.trim();\n\n  // Evitar confundir MRZ con identificadores personales\n  if (\n    /^P<[A-Z]{3}/i.test(limpio) ||\n    (\n      limpio.length >= 20 &&\n      limpio.includes(\"<<\")\n    )\n  ) {\n    return null;\n  }\n\n  if (pais === \"CHL\") {\n    // Quitar etiqueta RUN o RUT\n    limpio = limpio.replace(\n      /^(?:RUN|RUT)\\b[\\s:.\\-#]*/i,\n      \"\"\n    );\n\n  } else if (pais === \"BRA\") {\n    // Quitar etiqueta CPF\n    limpio = limpio.replace(\n      /^CPF\\b[\\s:.\\-#]*/i,\n      \"\"\n    );\n\n  } else if (pais === \"PRT\") {\n    // Quitar etiqueta NIF\n    limpio = limpio.replace(\n      /^NIF\\b[\\s:.\\-#]*/i,\n      \"\"\n    );\n  }\n\n  return limpio.trim() || null;\n}\n\n// 4. Normalizar nacionalidades conocidas\nfunction normalizarNacionalidad(valor, pais) {\n  if (!valor) return null;\n\n  const normalizado = valor\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")\n    .trim()\n    .toUpperCase();\n\n  if (\n    pais === \"CHL\" &&\n    [\"CHILENA\", \"CHILENO\", \"CHL\"].includes(normalizado)\n  ) {\n    return \"CHL\";\n  }\n\n  return valor;\n}\n\n// 5. Recuperar campos dudosos\nconst camposDudosos = Array.isArray(datos.campos_dudosos)\n  ? datos.campos_dudosos.filter(\n      campo =>\n        typeof campo === \"string\" &&\n        campo.trim() &&\n        campo !== \"fecha_caducidad\"\n    )\n  : [];\n\n// 6. Comprobar formato de fechas\nconst fecha = (campo, comprobar = true) => {\n  const valor = texto(campo);\n\n  if (!valor) return null;\n\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(valor)) {\n    if (comprobar) camposDudosos.push(campo);\n    return null;\n  }\n\n  const objetoFecha = new Date(\n    valor + \"T00:00:00Z\"\n  );\n\n  if (\n    Number.isNaN(objetoFecha.getTime()) ||\n    objetoFecha.toISOString().slice(0, 10) !== valor\n  ) {\n    if (comprobar) camposDudosos.push(campo);\n    return null;\n  }\n\n  return valor;\n};\n\n// 7. Identificadores independientes\nconst numeroDocumento = texto(\"numero_documento\");\n\nconst identificadorPersonal = limpiarIdentificador(\n  texto(\"identificador_personal\"),\n  paisEmisor\n);\n\nconst numeroSoporte = texto(\"numero_soporte\");\n\n// 8. NUEVO: recuperar la lectura MRZ especializada\nlet mrzLinea1 = null;\nlet mrzLinea2 = null;\nlet origenMRZ = null;\n\n// Solo los pasaportes utilizan la rama especializada\nif (tipoDocumento === \"PASAPORTE\") {\n\n  try {\n    const resultadoMRZ = $(\n      \"MRZ - Comprobar lectura\"\n    ).first().json;\n\n    // Recuperar exactamente lo leído por Qwen\n    mrzLinea1 =\n      typeof resultadoMRZ.mrz_linea_1 === \"string\" &&\n      resultadoMRZ.mrz_linea_1.trim()\n        ? resultadoMRZ.mrz_linea_1.trim()\n        : null;\n\n    mrzLinea2 =\n      typeof resultadoMRZ.mrz_linea_2 === \"string\" &&\n      resultadoMRZ.mrz_linea_2.trim()\n        ? resultadoMRZ.mrz_linea_2.trim()\n        : null;\n\n    origenMRZ = \"LECTURA_ESPECIALIZADA\";\n\n  } catch (error) {\n\n    // Si la rama MRZ no se ha ejecutado,\n    // no inventamos ni reutilizamos líneas.\n    mrzLinea1 = null;\n    mrzLinea2 = null;\n\n    origenMRZ = \"NO_DISPONIBLE\";\n  }\n}\n\n// IMPORTANTE:\n// No completamos líneas de menos de 44 caracteres.\n// No sustituimos símbolos.\n// No corregimos automáticamente letras ni números.\n//\n// El nodo Validar datos extraidos comprobará\n// posteriormente la estructura y dígitos MRZ.\n\n// 9. Construir registro NoSQL\nconst registroNoSQL = {\n  version_esquema: 1,\n\n  documento: {\n    tipo_documento: tipoDocumento,\n    pais_emisor: paisEmisor,\n\n    numero_documento: numeroDocumento,\n    identificador_personal: identificadorPersonal,\n    numero_soporte: numeroSoporte,\n\n    nombre: texto(\"nombre\"),\n    apellidos: texto(\"apellidos\"),\n\n    fecha_nacimiento: fecha(\n      \"fecha_nacimiento\",\n      true\n    ),\n\n    // Caducidad informativa.\n    // No se rechaza por estar caducado.\n    fecha_caducidad: fecha(\n      \"fecha_caducidad\",\n      false\n    ),\n\n    nacionalidad: normalizarNacionalidad(\n      texto(\"nacionalidad\"),\n      paisEmisor\n    ),\n\n    // MRZ obtenida mediante la rama especializada\n    mrz_linea_1: mrzLinea1,\n    mrz_linea_2: mrzLinea2\n  },\n\n  evaluacion: {\n    estado_nitidez: item.json.estadoNitidez ?? null,\n    varianza: item.json.varianza ?? null,\n    umbral: item.json.umbral ?? null,\n    intento: item.json.intentos ?? null,\n\n    campos_dudosos: [...new Set(camposDudosos)],\n\n    origen_mrz: origenMRZ,\n\n    verificado: false\n  },\n\n  metadatos: {\n    fecha_procesamiento: new Date().toISOString(),\n    origen: \"n8n_local\"\n  }\n};\n\n// 10. Devolver resultado\nreturn [{\n  json: {\n    ...item.json,\n\n    registroNoSQL,\n\n    jsonParaMostrar: JSON.stringify(\n      registroNoSQL,\n      null,\n      2\n    )\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4480,
+        -352
+      ],
+      "id": "50d40e0e-ee16-4209-b56a-a63c69b97925",
+      "name": "Preparar Json"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first();\nconst registro = item.json.registroNoSQL;\n\nconst documento = registro?.documento ?? {};\n\n// 1. Comprobar campos obligatorios\nconst camposObligatorios = [\n  \"numero_documento\",\n  \"nombre\",\n  \"apellidos\"\n];\n\nconst camposFaltantes = camposObligatorios.filter(\n  campo =>\n    typeof documento[campo] !== \"string\" ||\n    !documento[campo].trim()\n);\n\n// 2. Campos dudosos\nconst camposDudosos = Array.isArray(\n  registro?.evaluacion?.campos_dudosos\n)\n  ? registro.evaluacion.campos_dudosos\n  : [];\n\n// 3. Recoger resultados del nodo de validación\nconst validacionDatos = item.json.validacionDatos;\n\nconst erroresValidacion = Array.isArray(\n  validacionDatos?.errores\n)\n  ? validacionDatos.errores\n  : [\"No se ha ejecutado la validación de datos\"];\n\n// 4. Normalizar categorías documentales\nfunction normalizarTipo(tipo) {\n  if (typeof tipo !== \"string\" || !tipo.trim()) {\n    return null;\n  }\n\n  const valor = tipo\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")\n    .trim()\n    .toUpperCase()\n    .replace(/[\\s-]+/g, \"_\");\n\n  const tiposDesconocidos = [\n    \"OTRO\",\n    \"INDETERMINADO\",\n    \"DESCONOCIDO\",\n    \"NO_DOCUMENTO\"\n  ];\n\n  if (tiposDesconocidos.includes(valor)) {\n    return null;\n  }\n\n  // Pasaportes internacionales\n  if (\n    valor.includes(\"PASAPORTE\") ||\n    valor.includes(\"PASSPORT\")\n  ) {\n    return \"PASAPORTE\";\n  }\n\n  // DNI español\n  if (valor === \"DNI_NIF\") {\n    return \"DNI_NIF\";\n  }\n\n  // Documentación española de extranjeros\n  if ([\n    \"NIE\",\n    \"TIE\",\n    \"TIE_NIE\",\n    \"CERTIFICADO_NIE\",\n    \"DOCUMENTO_NIF\"\n  ].includes(valor)) {\n    return \"TIE_NIE\";\n  }\n\n  // Identificaciones nacionales internacionales\n  if ([\n    \"ID_NACIONAL\",\n    \"ID_LATAM\",\n    \"NATIONAL_ID\",\n    \"NATIONAL_ID_CARD\",\n    \"CARTAO_CIDADAO\",\n    \"CARTAO_DE_CIDADAO\",\n    \"PERSONALAUSWEIS\",\n    \"CEDULA_IDENTIDAD\",\n    \"CEDULA_DE_IDENTIDAD\",\n    \"CARTE_IDENTITE\",\n    \"CARTA_IDENTITA\"\n  ].includes(valor)) {\n    return \"ID_NACIONAL\";\n  }\n\n  // Mantener denominaciones específicas desconocidas\n  return valor;\n}\n\n// 5. Comparar clasificación y extracción\nconst tipoInicial =\n  item.json.tipo_documento ?? null;\n\nconst tipoExtraido =\n  documento.tipo_documento ?? null;\n\nconst tipoInicialNormalizado =\n  normalizarTipo(tipoInicial);\n\nconst tipoExtraidoNormalizado =\n  normalizarTipo(tipoExtraido);\n\nconst tipoSinDeterminar =\n  !tipoInicialNormalizado ||\n  !tipoExtraidoNormalizado;\n\nconst tipoInconsistente =\n  !tipoSinDeterminar &&\n  tipoInicialNormalizado !== tipoExtraidoNormalizado;\n\n// 6. Decisión final del proceso\nlet estadoProceso;\n\nif (item.json.valida !== true) {\n  estadoProceso = \"IMAGEN_BORROSA\";\n\n} else if (!registro || item.json.errorExtraccion) {\n  estadoProceso = \"ERROR_EXTRACCION\";\n\n} else if (\n  camposFaltantes.length > 0 ||\n  erroresValidacion.length > 0\n) {\n  // Faltan datos o no superan las validaciones\n  estadoProceso = \"EXTRACCION_INCOMPLETA\";\n\n} else if (\n  camposDudosos.length > 0 ||\n  tipoInconsistente ||\n  tipoSinDeterminar\n) {\n  estadoProceso = \"REVISION_MANUAL\";\n\n} else {\n  estadoProceso = \"PENDIENTE_VERIFICACION\";\n}\n\n// 7. Devolver resultado\nreturn [{\n  json: {\n    ...item.json,\n\n    estadoProceso,\n\n    camposFaltantes,\n    camposDudosos,\n    erroresValidacion,\n\n    tipoInicialNormalizado,\n    tipoExtraidoNormalizado,\n    tipoInconsistente,\n    tipoSinDeterminar,\n\n    verificado: false,\n    permitirGuardadoDefinitivo: false\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5024,
+        -112
+      ],
+      "id": "196d832b-666f-4345-998f-e583a09a58a3",
+      "name": "Evaluar extraccion"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "011e29d3-da94-4656-a21e-8d37ebce590c",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        176
+      ],
+      "id": "7da586b8-2732-4b46-935e-2d9e0e5c97aa",
+      "name": "API - Webhook",
+      "webhookId": "011e29d3-da94-4656-a21e-8d37ebce590c"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst binary = item.binary ?? {};\nconst imagen = binary.imagen ?? binary.Imagen;\nif (!imagen) {\n  return [{json: {apiError: 'FALTA_IMAGEN', mensaje: 'Envía una imagen usando el campo imagen.'}}];\n}\nreturn [{json: {...item.json, intentos: 0, apiError: null}, binary: {Imagen: imagen}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        176
+      ],
+      "id": "f01d5cb4-1449-4015-a6b3-28c48257a2d5",
+      "name": "API - Normalizar archivo"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "037b516e-79f1-415a-b48b-873299bd7671",
+              "leftValue": "={{ $json.apiError === null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        176
+      ],
+      "id": "713461a5-2f26-4e18-bb67-32d546fc4849",
+      "name": "API - Archivo presente"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{json:{ok:false,estado:'NO_APTA',error:$json.apiError ?? 'ENTRADA_INVALIDA',motivo:$json.mensaje ?? 'Solicitud inválida'}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        400
+      ],
+      "id": "2af42656-b18c-42f8-b286-872efbcef8cf",
+      "name": "API - Error entrada"
+    },
+    {
+      "parameters": {
+        "jsCode": "const v=$input.first().json;\nreturn [{json:{ok:true,estado:v.estado ?? 'REVISION_MANUAL',tipo_documento:v.tipo_documento ?? 'INDETERMINADO',documento_visible:v.documento_visible ?? null,documento_completo:v.documento_completo ?? null,mano_externa_visible:v.mano_externa_visible ?? null,persona_externa_visible:v.persona_externa_visible ?? null,motivo:v.motivo ?? 'No ha superado el filtro visual',nitidez:null,datos_extraidos:null,verificacion_pendiente:true}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        528
+      ],
+      "id": "ba9a1168-a886-4c65-ab9e-9ed15f790b0a",
+      "name": "API - Rechazo visual"
+    },
+    {
+      "parameters": {
+        "jsCode": "const v=$input.first().json;\nreturn [{json:{ok:true,estado:'NO_APTA',tipo_documento:v.tipo_documento ?? 'INDETERMINADO',motivo:v.motivoNitidez ?? 'Imagen borrosa',nitidez:{estado:v.estadoNitidez,varianza:v.varianza,umbral:v.umbral,dimensionesOriginales:v.dimensionesOriginales},datos_extraidos:null,verificacion_pendiente:true}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        528
+      ],
+      "id": "2865ff1a-1a57-4023-9e46-b19d6d76af58",
+      "name": "API - Rechazo nitidez"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst v = $input.first().json;\n\n// 1. Estado del procesamiento\nconst estado = v.estadoProceso ?? \"REVISION_MANUAL\";\n\n// Solo consideramos superados los controles automáticos\n// cuando llegamos a PENDIENTE_VERIFICACION.\nconst controlesSuperados =\n  estado === \"PENDIENTE_VERIFICACION\";\n\n// 2. Recuperar errores de validación\nconst erroresValidacion = Array.isArray(v.erroresValidacion)\n  ? v.erroresValidacion\n  : Array.isArray(v.validacionDatos?.errores)\n    ? v.validacionDatos.errores\n    : [];\n\nconst camposFaltantes = Array.isArray(v.camposFaltantes)\n  ? v.camposFaltantes\n  : [];\n\nconst camposDudosos = Array.isArray(v.camposDudosos)\n  ? v.camposDudosos\n  : [];\n\nconst tipoInconsistente =\n  v.tipoInconsistente === true;\n\n// 3. Preparar motivo para el usuario\nlet motivo = v.motivo ?? null;\n\nif (estado === \"IMAGEN_BORROSA\") {\n  motivo =\n    \"La imagen no supera el control de nitidez. \" +\n    \"Sube otra fotografía más enfocada.\";\n\n} else if (estado === \"EXTRACCION_INCOMPLETA\") {\n\n  const errorNumero = erroresValidacion.some(\n    error => /n[uú]mero|formato/i.test(String(error))\n  );\n\n  if (errorNumero || camposFaltantes.includes(\"numero_documento\")) {\n    motivo =\n      \"No se ha podido comprobar correctamente el número \" +\n      \"del documento. Sube otra fotografía donde aparezca \" +\n      \"completo, visible y legible.\";\n  } else {\n    motivo =\n      \"No se han podido obtener todos los datos obligatorios. \" +\n      \"Sube otra fotografía con la información completa y legible.\";\n  }\n\n} else if (estado === \"REVISION_MANUAL\") {\n  motivo =\n    \"No se ha podido confirmar con suficiente seguridad \" +\n    \"la información del documento. Sube otra fotografía \" +\n    \"con todos los datos visibles.\";\n\n} else if (estado === \"ERROR_EXTRACCION\") {\n  motivo =\n    \"Se ha producido un error al analizar el documento. \" +\n    \"Intenta subir la imagen nuevamente.\";\n\n} else if (estado === \"NO_APTA\") {\n  motivo =\n    \"La imagen no cumple los requisitos de identificación. \" +\n    \"Sube otra fotografía sin datos ocultos ni recortes.\";\n\n} else if (!controlesSuperados) {\n  motivo =\n    \"No se ha podido completar la validación. \" +\n    \"Sube otra fotografía del documento.\";\n}\n\n// 4. Conservar información de nitidez\nconst nitidez = {\n  estado: v.estadoNitidez ?? null,\n  varianza: v.varianza ?? null,\n  umbral: v.umbral ?? null,\n  dimensionesOriginales: v.dimensionesOriginales ?? null\n};\n\n// 5. Construir respuesta final\nreturn [{\n  json: {\n    ok: controlesSuperados,\n\n    estado,\n\n    tipo_documento:\n      v.tipo_documento ?? null,\n\n    motivo,\n\n    nitidez,\n\n    // No devolver información personal parcial\n    // cuando la imagen no supera los controles.\n    datos_extraidos: controlesSuperados\n      ? (v.datosExtraidos ?? null)\n      : null,\n\n    campos_faltantes: camposFaltantes,\n    campos_dudosos: camposDudosos,\n\n    tipo_inconsistente: tipoInconsistente,\n\n    errores_validacion: erroresValidacion,\n\n    validacion_formato:\n      v.validacionDatos?.formatoNumero ?? \"NO_COMPROBADO\",\n\n    regla_aplicada:\n      v.validacionDatos?.reglaAplicada ?? null,\n\n    solicitar_nueva_imagen: !controlesSuperados,\n\n    registroNoSQL: controlesSuperados\n      ? (v.registroNoSQL ?? null)\n      : null,\n\n    verificacion_pendiente: controlesSuperados,\n\n    permitir_guardado_definitivo: false\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5536,
+        352
+      ],
+      "id": "defc6b15-8d17-411e-a40e-4ebaea1aacfa",
+      "name": "API - Resultado final"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        544
+      ],
+      "id": "8c8e369c-1559-4576-aec8-bb370a5325c6",
+      "name": "API - Responder error entrada"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2240,
+        528
+      ],
+      "id": "37a04256-bdf4-42cf-8d88-fe46ccdd8be8",
+      "name": "API - Responder rechazo visual"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3152,
+        528
+      ],
+      "id": "5b78e9ca-2286-4ffa-85d2-142816cf6c37",
+      "name": "API - Responder rechazo nitidez"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        5632,
+        48
+      ],
+      "id": "72bbd38a-ff39-429d-b747-4c0bc8b2c89d",
+      "name": "API - Responder resultado"
+    },
+    {
+      "parameters": {
+        "content": "## I'm a note \n**Double click** to edit me. [Guide]FRONT\n"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        -32
+      ],
+      "id": "ba241818-75ea-4bf7-981c-cbc61c8d470c",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first();\nconst registro = item.json.registroNoSQL;\nconst documento = registro?.documento ?? {};\n\nconst errores = [];\nconst advertencias = [];\n\nconst pais = String(\n  documento.pais_emisor ?? \"\"\n).trim().toUpperCase();\n\nconst tipo = String(\n  documento.tipo_documento ?? \"\"\n).trim().toUpperCase();\n\nconst subtipo = String(\n  documento.subtipo_documento ??\n  item.json.subtipo_documento ??\n  \"\"\n).trim().toUpperCase();\n\nconst numero = String(\n  documento.numero_documento ?? \"\"\n).trim();\n\nconst numeroLimpio = numero\n  .toUpperCase()\n  .replace(/[\\s.\\-/]/g, \"\");\n\n// 1. Campos obligatorios\nfor (const campo of [\n  \"numero_documento\",\n  \"nombre\",\n  \"apellidos\"\n]) {\n  const valor = documento[campo];\n\n  if (\n    typeof valor !== \"string\" ||\n    !valor.trim()\n  ) {\n    errores.push(\n      `Campo obligatorio ausente: ${campo}`\n    );\n  }\n}\n\n// 2. Caracteres ilegibles\nif (/[*#?■●]/u.test(numero)) {\n  errores.push(\n    \"El número contiene caracteres ilegibles\"\n  );\n}\n\n// 3. DNI español\nfunction validarDNI(valor) {\n  if (!/^\\d{8}[A-Z]$/.test(valor)) {\n    return false;\n  }\n\n  const letras = \"TRWAGMYFPDXBNJZSQVHLCKE\";\n  const n = Number(valor.slice(0, 8));\n\n  return valor[8] === letras[n % 23];\n}\n\n// 4. Cartão de Cidadão portugués\nfunction validarFormatoCC(valor) {\n  return /^\\d{9}[A-Z0-9]{2}\\d$/.test(valor);\n}\n\n// 5. CPF brasileño (solo estructura)\nfunction validarFormatoCPF(valor) {\n  return /^\\d{11}$/.test(valor);\n}\n\n// 6. NUEVO: calcular dígito de control MRZ\nfunction calcularDigitoMRZ(cadena) {\n  const pesos = [7, 3, 1];\n  let suma = 0;\n\n  for (let i = 0; i < cadena.length; i++) {\n    const caracter = cadena[i];\n    let valor;\n\n    if (caracter === \"<\") {\n      valor = 0;\n    } else if (/^[0-9]$/.test(caracter)) {\n      valor = Number(caracter);\n    } else if (/^[A-Z]$/.test(caracter)) {\n      valor = caracter.charCodeAt(0) - 55;\n    } else {\n      return null;\n    }\n\n    suma += valor * pesos[i % 3];\n  }\n\n  return String(suma % 10);\n}\n\n// 7. NUEVO: validar pasaportes TD3\nfunction validarMRZTD3(linea1, linea2) {\n  const erroresMRZ = [];\n\n  if (!linea1 || !linea2) {\n    erroresMRZ.push(\n      \"MRZ incompleta: falta una o ambas líneas\"\n    );\n\n    return {\n      valida: false,\n      estado: \"FORMATO_INCORRECTO\",\n      errores: erroresMRZ\n    };\n  }\n\n  // No completar automáticamente caracteres.\n  const l1 = linea1.trim().toUpperCase();\n  const l2 = linea2.trim().toUpperCase();\n\n  if (l1.length !== 44 || l2.length !== 44) {\n    erroresMRZ.push(\n      \"MRZ incompleta: cada línea debe tener 44 caracteres\"\n    );\n  }\n\n  if (\n    !/^[A-Z0-9<]+$/.test(l1) ||\n    !/^[A-Z0-9<]+$/.test(l2)\n  ) {\n    erroresMRZ.push(\n      \"MRZ contiene caracteres no permitidos\"\n    );\n  }\n\n  if (erroresMRZ.length > 0) {\n    return {\n      valida: false,\n      estado: \"FORMATO_INCORRECTO\",\n      errores: erroresMRZ\n    };\n  }\n\n  if (!/^P[A-Z<]/.test(l1)) {\n    erroresMRZ.push(\n      \"MRZ: código de documento TD3 incorrecto\"\n    );\n  }\n\n  if (!/^[A-Z<]{3}$/.test(l1.slice(2, 5))) {\n    erroresMRZ.push(\n      \"MRZ: código de país emisor incorrecto\"\n    );\n  }\n\n  if (!/^[MF<]$/.test(l2[20])) {\n    erroresMRZ.push(\n      \"MRZ: indicador de sexo incorrecto\"\n    );\n  }\n\n  // Número de pasaporte: posiciones 1-9,\n  // dígito de control en posición 10.\n  const numeroMRZ = l2.slice(0, 9);\n  const controlNumero = l2[9];\n\n  if (\n    calcularDigitoMRZ(numeroMRZ) !== controlNumero\n  ) {\n    erroresMRZ.push(\n      \"MRZ: dígito de control del número incorrecto\"\n    );\n  }\n\n  // Nacimiento: posiciones 14-19,\n  // control en posición 20.\n  const nacimientoMRZ = l2.slice(13, 19);\n\n  if (\n    calcularDigitoMRZ(nacimientoMRZ) !== l2[19]\n  ) {\n    erroresMRZ.push(\n      \"MRZ: dígito de control del nacimiento incorrecto\"\n    );\n  }\n\n  // Caducidad: posiciones 22-27,\n  // control en posición 28.\n  //\n  // Solo comprobamos integridad de lectura.\n  // NO comprobamos si está caducado.\n  const caducidadMRZ = l2.slice(21, 27);\n\n  if (\n    calcularDigitoMRZ(caducidadMRZ) !== l2[27]\n  ) {\n    erroresMRZ.push(\n      \"MRZ: dígito de control de fecha incorrecto\"\n    );\n  }\n\n  // Datos opcionales: posiciones 29-42,\n  // control en posición 43.\n  const opcionalesMRZ = l2.slice(28, 42);\n  const controlOpcionales = l2[42];\n\n  const opcionalesVacios = /^<+$/.test(\n    opcionalesMRZ\n  );\n\n  // Cuando todo el campo es relleno,\n  // el dígito puede ser 0 o <.\n  const opcionalesValidos = opcionalesVacios\n    ? [\"0\", \"<\"].includes(controlOpcionales)\n    : calcularDigitoMRZ(opcionalesMRZ) ===\n      controlOpcionales;\n\n  if (!opcionalesValidos) {\n    erroresMRZ.push(\n      \"MRZ: control de datos opcionales incorrecto\"\n    );\n  }\n\n  // Control global: posiciones\n  // 1-10 + 14-20 + 22-43.\n  const datosGlobales =\n    l2.slice(0, 10) +\n    l2.slice(13, 20) +\n    l2.slice(21, 43);\n\n  if (\n    calcularDigitoMRZ(datosGlobales) !== l2[43]\n  ) {\n    erroresMRZ.push(\n      \"MRZ: dígito de control global incorrecto\"\n    );\n  }\n\n  return {\n    valida: erroresMRZ.length === 0,\n    estado: erroresMRZ.length === 0\n      ? \"FORMATO_CORRECTO\"\n      : \"FORMATO_INCORRECTO\",\n    errores: erroresMRZ\n  };\n}\n\n// 8. Seleccionar el validador\nlet formatoNumero = \"NO_COMPROBADO\";\nlet reglaAplicada = null;\nlet formatoCorrecto = null;\nlet validacionMRZ = null;\n\nif (tipo === \"PASAPORTE\") {\n\n  // Una única regla internacional para TD3.\n  reglaAplicada = \"ICAO_TD3_MRZ\";\n\n  validacionMRZ = validarMRZTD3(\n    documento.mrz_linea_1,\n    documento.mrz_linea_2\n  );\n\n  formatoNumero = validacionMRZ.estado;\n\n  errores.push(...validacionMRZ.errores);\n\n} else if (numeroLimpio) {\n\n  if (pais === \"ESP\" && tipo === \"DNI_NIF\") {\n    reglaAplicada = \"ESP_DNI\";\n    formatoCorrecto = validarDNI(numeroLimpio);\n\n  } else if (\n    pais === \"PRT\" &&\n    (\n      subtipo.includes(\"CIDADAO\") ||\n      subtipo.includes(\"CIDADÃO\") ||\n      subtipo === \"CC\" ||\n      (\n        tipo === \"ID_NACIONAL\" &&\n        validarFormatoCC(numeroLimpio)\n      )\n    )\n  ) {\n    reglaAplicada = \"PRT_CARTAO_CIDADAO\";\n    formatoCorrecto =\n      validarFormatoCC(numeroLimpio);\n\n  } else if (\n    pais === \"BRA\" &&\n    [\"CPF\", \"CIN\"].includes(subtipo)\n  ) {\n    reglaAplicada = \"BRA_CPF\";\n    formatoCorrecto =\n      validarFormatoCPF(numeroLimpio);\n  }\n\n  if (reglaAplicada !== null) {\n    formatoNumero = formatoCorrecto\n      ? \"FORMATO_CORRECTO\"\n      : \"FORMATO_INCORRECTO\";\n\n    if (!formatoCorrecto) {\n      errores.push(\n        \"El número no cumple el formato esperado\"\n      );\n    }\n\n  } else {\n    advertencias.push(\n      \"Formato documental sin regla específica\"\n    );\n  }\n}\n\n// 9. Construir resultado\nconst validacionDatos = {\n  pais,\n  tipo,\n  subtipo: subtipo || null,\n\n  numeroPresente: numeroLimpio.length > 0,\n  formatoNumero,\n  reglaAplicada,\n\n  validacionMRZ,\n\n  errores,\n  advertencias,\n\n  comprobacionesGeneralesSuperadas:\n    errores.length === 0\n};\n\n// 10. Devolver sin alterar otros campos\nreturn [{\n  json: {\n    ...item.json,\n    validacionDatos\n  },\n  binary: item.binary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4768,
+        304
+      ],
+      "id": "fe57cb4d-4aa7-4fcb-8754-bcae70c6e0df",
+      "name": "Validar datos extraídos"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst sharp = require(\"sharp\");\n\nconst item = $input.first();\n\n// Obtener el tipo documental\nconst tipoDocumento = String(\n  item.json.tipo_documento ?? \"\"\n).trim().toUpperCase();\n\n// Conservar la imagen original\nif (!item.binary?.Imagen) {\n  throw new Error(\"No se recibió la imagen original\");\n}\n\n// No recortar DNI, cédulas ni otros documentos\nif (tipoDocumento !== \"PASAPORTE\") {\n  return [{\n    json: {\n      ...item.json,\n      mrzRecorteGenerado: false\n    },\n    binary: item.binary\n  }];\n}\n\n// Recuperar la imagen original\nconst buffer = await this.helpers.getBinaryDataBuffer(\n  0,\n  \"Imagen\"\n);\n\n// Corregir orientación EXIF\nconst imagenOrientada = await sharp(buffer)\n  .rotate()\n  .toBuffer();\n\nconst metadata = await sharp(imagenOrientada)\n  .metadata();\n\nconst ancho = metadata.width;\nconst alto = metadata.height;\n\n// Recortar el 30% inferior de la fotografía.\n// Aproximación inicial para pasaportes TD3.\nconst inicioY = Math.floor(alto * 0.70);\nconst altoRecorte = alto - inicioY;\n\n// Ampliar la zona para facilitar su lectura\nconst anchoDestino = Math.min(\n  2400,\n  Math.max(1600, ancho)\n);\n\nconst recorte = await sharp(imagenOrientada)\n  .extract({\n    left: 0,\n    top: inicioY,\n    width: ancho,\n    height: altoRecorte\n  })\n  .resize({\n    width: anchoDestino,\n    kernel: \"lanczos3\"\n  })\n  .png()\n  .toBuffer();\n\n// Crear un nuevo binario de n8n\nconst imagenMRZ = await this.helpers.prepareBinaryData(\n  recorte,\n  \"mrz-recorte.png\",\n  \"image/png\"\n);\n\n// Mantener la imagen original y añadir el recorte\nreturn [{\n  json: {\n    ...item.json,\n    mrzRecorteGenerado: true,\n    mrzRecorteOrigen: `${ancho}x${alto}`\n  },\n  binary: {\n    ...item.binary,\n    ImagenMRZ: imagenMRZ\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3280,
+        -128
+      ],
+      "id": "718cb2f6-3cd8-45c0-a2bb-427033a952ba",
+      "name": "MRZ - Preparar recorte"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first();\n\nconst tipo = String(\n  item.json.tipo_documento ?? \"\"\n).trim().toUpperCase();\n\n// Los documentos que no sean pasaportes\n// continúan sin procesamiento MRZ.\nif (tipo !== \"PASAPORTE\") {\n  return [{\n    json: {\n      ...item.json,\n      mrzBase64: null\n    },\n    binary: item.binary\n  }];\n}\n\n// Comprobar que existe el recorte\nif (!item.binary?.ImagenMRZ) {\n  throw new Error(\n    \"No se encontró el recorte MRZ del pasaporte\"\n  );\n}\n\n// Recuperar los bytes\nconst buffer = await this.helpers.getBinaryDataBuffer(\n  0,\n  \"ImagenMRZ\"\n);\n\n// Convertir a Base64\nconst mrzBase64 = buffer.toString(\"base64\");\n\n// Conservar la imagen original\nreturn [{\n  json: {\n    ...item.json,\n    mrzBase64\n  },\n  binary: item.binary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3408,
+        176
+      ],
+      "id": "4b65ba86-5626-47b1-9fa5-dc22120891c2",
+      "name": "MRZ - Preparar Base64"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "7c714f7b-49ef-42ea-bc56-60e7a6470d92",
+              "leftValue": "={{ $json.tipo_documento }}",
+              "rightValue": "PASAPORTE",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        3600,
+        352
+      ],
+      "id": "b7f46341-450f-453f-b12b-ca300c274eb4",
+      "name": "IF - Es pasaporte"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"qwen3-vl:4b-instruct\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"options\": {\n    \"temperature\": 0,\n    \"num_ctx\": 8192\n  },\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Eres un lector especializado en zonas MRZ de pasaportes internacionales TD3. La imagen contiene la zona inferior de un pasaporte. Tu única tarea es transcribir las dos líneas MRZ exactamente como aparecen. REGLAS: 1. Cada línea TD3 completa tiene 44 caracteres. 2. Conserva absolutamente todos los símbolos <, incluidos los finales. 3. Utiliza exclusivamente letras A-Z sin acentos, números 0-9 y el símbolo <. 4. No confundas la letra O con el número 0 ni la letra I con el número 1. 5. No traduzcas nombres ni sustituyas caracteres de la imagen por datos de otras zonas del pasaporte. 6. No añadas espacios ni etiquetas. 7. No inventes caracteres para completar las líneas. 8. Si una línea está cortada, tiene caracteres ilegibles o no puedes transcribirla completamente, devuelve null para esa línea. 9. No evalúes la vigencia ni autenticidad del documento. Devuelve exclusivamente JSON válido con estas dos propiedades: {\\\"mrz_linea_1\\\": null, \\\"mrz_linea_2\\\": null}. Sustituye los valores null únicamente cuando puedas leer cada línea completa con seguridad.\",\n      \"images\": [\n        \"{{ $json.mrzBase64 }}\"\n      ]\n    }\n  ]\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        4128,
+        592
+      ],
+      "id": "0c144c2e-a4e0-44ad-a2bc-5dde4872772f",
+      "name": "MRZ - Leer con Qwen"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst respuesta = $input.first().json.message?.content;\n\nlet mrz = {};\n\ntry {\n  mrz = JSON.parse(respuesta);\n} catch {\n  mrz = {};\n}\n\nconst ajustes = [];\n\n// Normalizar sin inventar caracteres\nfunction normalizarLinea(valor, nombreCampo) {\n  if (typeof valor !== \"string\" || !valor.trim()) {\n    return null;\n  }\n\n  let linea = valor.trim();\n\n  // La MRZ utiliza letras mayúsculas\n  if (linea !== linea.toUpperCase()) {\n    linea = linea.toUpperCase();\n    ajustes.push(`${nombreCampo}: mayúsculas`);\n  }\n\n  // En la primera línea TD3, los símbolos\n  // < del final son caracteres de relleno.\n  // Quitar solo el exceso final comprobable.\n  if (\n    nombreCampo === \"mrz_linea_1\" &&\n    linea.length > 44 &&\n    /^<+$/.test(linea.slice(44)) &&\n    /<{4,}$/.test(linea.slice(0, 44))\n  ) {\n    ajustes.push(\n      `${nombreCampo}: eliminado relleno sobrante`\n    );\n\n    linea = linea.slice(0, 44);\n  }\n\n  return linea;\n}\n\nconst linea1 = normalizarLinea(\n  mrz.mrz_linea_1,\n  \"mrz_linea_1\"\n);\n\nconst linea2 = normalizarLinea(\n  mrz.mrz_linea_2,\n  \"mrz_linea_2\"\n);\n\nfunction comprobar(linea) {\n  return (\n    typeof linea === \"string\" &&\n    linea.length === 44 &&\n    /^[A-Z0-9<]{44}$/.test(linea)\n  );\n}\n\nreturn [{\n  json: {\n    mrz_linea_1: linea1,\n    mrz_linea_2: linea2,\n\n    longitud_linea_1: linea1?.length ?? 0,\n    longitud_linea_2: linea2?.length ?? 0,\n\n    estructura_correcta:\n      comprobar(linea1) && comprobar(linea2),\n\n    ajustes_mrz: ajustes\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4352,
+        592
+      ],
+      "id": "85cbe22a-8051-4b72-8f77-180d08a180e7",
+      "name": "MRZ - Comprobar lectura"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst original = $(\"MRZ - Preparar Base64\").first();\nconst resultadoMRZ = $input.first().json;\n\nreturn [{\n  json: {\n    ...original.json,\n    mrzEspecializada: {\n      mrz_linea_1: resultadoMRZ.mrz_linea_1 ?? null,\n      mrz_linea_2: resultadoMRZ.mrz_linea_2 ?? null,\n      estructura_correcta:\n        resultadoMRZ.estructura_correcta === true\n    }\n  },\n  binary: original.binary\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4576,
+        592
+      ],
+      "id": "8dc8ed6e-4286-4c52-8552-77d9cd6abdfb",
+      "name": "MRZ - Volver al flujo"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "API - Webhook": {
+      "main": [
+        [
+          {
+            "node": "API - Normalizar archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API - Normalizar archivo": {
+      "main": [
+        [
+          {
+            "node": "API - Archivo presente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API - Archivo presente": {
+      "main": [
+        [
+          {
+            "node": "02 - Comprobar formato y tamaño1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "API - Error entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API - Error entrada": {
+      "main": [
+        [
+          {
+            "node": "API - Responder error entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 - Comprobar formato y tamaño1": {
+      "main": [
+        [
+          {
+            "node": "03 - Preparar imagen Base66",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 - Preparar imagen Base66": {
+      "main": [
+        [
+          {
+            "node": "03- Analizar si es un NIF1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03- Analizar si es un NIF1": {
+      "main": [
+        [
+          {
+            "node": "Interpretar respuesta1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpretar respuesta1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "03 - Ejecución validate1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "API - Rechazo visual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API - Rechazo visual": {
+      "main": [
+        [
+          {
+            "node": "API - Responder rechazo visual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 - Ejecución validate1": {
+      "main": [
+        [
+          {
+            "node": "If Valida o NO1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Valida o NO1": {
+      "main": [
+        [
+          {
+            "node": "Extraccion a json de datos1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "API - Rechazo nitidez",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API - Rechazo nitidez": {
+      "main": [
+        [
+          {
+            "node": "API - Responder rechazo nitidez",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraccion a json de datos1": {
+      "main": [
+        [
+          {
+            "node": "MRZ - Preparar recorte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze image1": {
+      "main": [
+        [
+          {
+            "node": "preparar resultado final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "preparar resultado final": {
+      "main": [
+        [
+          {
+            "node": "Preparar Json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Json": {
+      "main": [
+        [
+          {
+            "node": "Validar datos extraídos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar extraccion": {
+      "main": [
+        [
+          {
+            "node": "API - Resultado final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API - Resultado final": {
+      "main": [
+        [
+          {
+            "node": "API - Responder resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar datos extraídos": {
+      "main": [
+        [
+          {
+            "node": "Evaluar extraccion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MRZ - Preparar recorte": {
+      "main": [
+        [
+          {
+            "node": "MRZ - Preparar Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MRZ - Preparar Base64": {
+      "main": [
+        [
+          {
+            "node": "IF - Es pasaporte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Es pasaporte": {
+      "main": [
+        [
+          {
+            "node": "MRZ - Leer con Qwen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Analyze image1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MRZ - Leer con Qwen": {
+      "main": [
+        [
+          {
+            "node": "MRZ - Comprobar lectura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MRZ - Comprobar lectura": {
+      "main": [
+        [
+          {
+            "node": "MRZ - Volver al flujo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MRZ - Volver al flujo": {
+      "main": [
+        [
+          {
+            "node": "Analyze image1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "a3a3d7b4-fc4b-4ffc-9bcb-2ca2b599d0ef",
+  "meta": {
+    "instanceId": "d595ca6c77bde519dae37f2b7f75cd3e39c483183d41b7d9b2f02538a90b5fa3"
+  },
+  "nodeGroups": [],
+  "id": "qDYplkGjkOSJMqI0",
+  "tags": []
+}

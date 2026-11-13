@@ -1,0 +1,21 @@
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: nif-frontend:1.0
+    container_name: nif-frontend
+
+    ports:
+      - "127.0.0.1:8080:80"
+
+    restart: unless-stopped
+
+    networks:
+      - n8n-network
+
+networks:
+  n8n-network:
+    external: true
+    name: self-hosted-ai-starter-kit_demo
