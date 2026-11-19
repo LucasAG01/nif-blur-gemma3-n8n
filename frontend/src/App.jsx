@@ -1,16 +1,30 @@
 
 import {  useRef, useState } from 'react'
 import {
-  Upload, FileCheck2, LoaderCircle, CheckCircle2,
+  Upload, Camera, FileCheck2, LoaderCircle, CheckCircle2,
   AlertTriangle, XCircle, Copy, RefreshCw,
-  FileJson, ShieldCheck
+  FileJson, ShieldCheck, UserRound, Settings2, ClipboardCheck
 } from 'lucide-react'
 
 const API_URL = '/api/validar-documento-api'
 const MAX_SIZE = 8 * 1024 * 1024
+const CAMPOS_MATRICULA = [
+  ['tipo_documento', 'Tipo de documento'],
+  ['pais_emisor', 'País emisor'],
+  ['numero_documento', 'Número de documento'],
+  ['identificador_personal', 'Identificador personal (si corresponde)'],
+  ['numero_soporte', 'Número de soporte (si corresponde)'],
+  ['nombre', 'Nombre'],
+  ['apellidos', 'Apellidos'],
+  ['fecha_nacimiento', 'Fecha de nacimiento'],
+  ['fecha_caducidad', 'Fecha de caducidad (informativa)'],
+  ['nacionalidad', 'Nacionalidad'],
+]
+
 
 function App() {
   const inputRef = useRef(null)
+  const camaraRef = useRef(null)
   const [archivo, setArchivo] = useState(null)
   const [preview, setPreview] = useState(null)
   const [resultado, setResultado] = useState(null)
@@ -18,28 +32,23 @@ function App() {
   const [error, setError] = useState('')
   const [mostrarJson, setMostrarJson] = useState(false)
   const [copiado, setCopiado] = useState(false)
+  const [formulario, setFormulario] = useState(null)
+  const [modo, setModo] = useState('alumno')
+  const [confirmado, setConfirmado] = useState(false)
 
-  /*
-  useEffect(() => {
-    if (!archivo) {
-      return
-    }
-
-    const url = URL.createObjectURL(archivo)
-    setPreview(url)
-
-    return () => URL.revokeObjectURL(url)
-  }, [archivo])
-*/
   function seleccionarArchivo(event) {
-    if (preview) URL.revokeObjectURL(preview)
     const file = event.target.files?.[0]
     if (!file) return
+    if (preview) URL.revokeObjectURL(preview)
+    setPreview(null)
+    setFormulario(null)
+    setConfirmado(false)
+    if (inputRef.current) inputRef.current.value = ''
+    if (camaraRef.current) camaraRef.current.value = ''
 
     setError('')
     setResultado(null)
     setMostrarJson(false)
-    //setPreview(null)
 
     if (!['image/jpeg', 'image/png'].includes(file.type)) {
       setArchivo(null)
@@ -64,6 +73,8 @@ function App() {
     setCargando(true)
     setError('')
     setResultado(null)
+    setFormulario(null)
+    setConfirmado(false)
 
     const formData = new FormData()
     formData.append('imagen', archivo)
@@ -92,6 +103,16 @@ function App() {
       }
 
       setResultado(datos)
+      // Los datos extraídos son una propuesta editable, no una matrícula confirmada.
+      if (datos.estado === 'PENDIENTE_VERIFICACION' && datos.datos_extraidos) {
+        const inicial = {}
+        for (const [campo] of CAMPOS_MATRICULA) {
+          inicial[campo] = datos.datos_extraidos[campo] ?? ''
+        }
+        setFormulario(inicial)
+      } else {
+        setFormulario(null)
+      }
     } catch (err) {
       setError(err.message || 'No se pudo analizar la imagen.')
     } finally {
@@ -105,11 +126,14 @@ function App() {
     if (preview) URL.revokeObjectURL(preview)
     setPreview(null)
     setResultado(null)
+    setFormulario(null)
+    setConfirmado(false)
     setError('')
     setMostrarJson(false)
     setCopiado(false)
 
     if (inputRef.current) inputRef.current.value = ''
+    if (camaraRef.current) camaraRef.current.value = ''
   }
 
   async function copiarJson() {
@@ -129,6 +153,20 @@ function App() {
   const aceptado = estado === 'PENDIENTE_VERIFICACION'
   const datos = resultado?.datos_extraidos
   const nitidez = resultado?.nitidez
+  const esTecnico = modo === 'tecnico'
+
+  function confirmarDatos(event) {
+    event.preventDefault()
+    if (!formulario || !aceptado || cargando) return
+    const obligatorios = ['tipo_documento', 'numero_documento', 'nombre', 'apellidos']
+    if (obligatorios.some((campo) => !String(formulario[campo] ?? '').trim())) {
+      setError('Revisa los campos obligatorios: tipo de documento, número, nombre y apellidos.')
+      setConfirmado(false)
+      return
+    }
+    setError('')
+    setConfirmado(true)
+  }
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -137,23 +175,35 @@ function App() {
           <ShieldCheck className="text-teal-400" size={29} />
           <div>
             <h1 className="text-xl font-semibold">
-              Validación documental
+              {esTecnico ? 'Validación documental · Técnico' : 'Datos para tu matrícula'}
             </h1>
             <p className="text-xs text-slate-400">
-              Plataforma de análisis mediante IA local
+              {esTecnico ? 'Diagnóstico del análisis mediante IA local' : 'Sube tu documento y revisa los datos obtenidos'}
             </p>
           </div>
         </div>
       </header>
 
       <div className="mx-auto max-w-5xl space-y-6 p-5 md:py-10">
+        <nav aria-label="Modo de visualización" className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 p-2">
+          <button type="button" onClick={() => setModo('alumno')} aria-pressed={!esTecnico}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium ${!esTecnico ? 'bg-teal-500 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}>
+            <UserRound size={17} /> Modo alumno
+          </button>
+          <button type="button" onClick={() => setModo('tecnico')} aria-pressed={esTecnico}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium ${esTecnico ? 'bg-teal-500 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}>
+            <Settings2 size={17} /> Modo técnico
+          </button>
+          <span className="text-xs text-slate-400 md:ml-auto">Demo: el modo técnico no tiene control de acceso</span>
+        </nav>
         <section className="space-y-2">
           <h2 className="text-2xl font-bold md:text-3xl">
-            Analizar un documento
+            {esTecnico ? 'Analizar un documento' : 'Completa tus datos más fácilmente'}
           </h2>
           <p className="text-slate-400">
-            Sube una fotografía para comprobar su calidad
-            y extraer la información visible.
+            {esTecnico
+              ? 'Sube una fotografía para comprobar su calidad y extraer la información visible.'
+              : 'Haz una foto o sube una imagen de tu documento. Los datos aparecerán en un formulario para que puedas revisarlos y corregirlos.'}
           </p>
         </section>
 
@@ -161,6 +211,16 @@ function App() {
           <h3 className="mb-5 text-lg font-semibold">
             1. Seleccionar imagen
           </h3>
+
+          <input
+            ref={camaraRef}
+            type="file"
+            accept="image/jpeg,image/png"
+            capture="environment"
+            onChange={seleccionarArchivo}
+            className="hidden"
+            aria-label="Hacer foto del documento"
+          />
 
           <input
             ref={inputRef}
@@ -193,14 +253,27 @@ function App() {
               JPG o PNG · Máximo 8 MiB
             </p>
 
-            <button
-              type="button"
-              disabled={cargando}
-              onClick={() => inputRef.current?.click()}
-              className="mt-5 rounded-lg border border-slate-600 px-5 py-2 text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
-            >
-              Elegir archivo
-            </button>
+            <div className="mt-5 flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                disabled={cargando}
+                onClick={() => camaraRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-lg bg-teal-500 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-teal-400 disabled:opacity-50"
+              >
+                <Camera size={17} /> Hacer foto
+              </button>
+              <button
+                type="button"
+                disabled={cargando}
+                onClick={() => inputRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-600 px-5 py-2 text-sm font-medium hover:bg-slate-800 disabled:opacity-50"
+              >
+                <Upload size={17} /> Subir archivo
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-slate-500">
+              En ordenador, puedes subir una imagen. En móviles compatibles, «Hacer foto» abre la cámara.
+            </p>
           </div>
 
           <div className="mt-5 flex flex-wrap gap-3">
@@ -250,7 +323,7 @@ function App() {
         {resultado && (
           <section className="space-y-5" aria-label="Resultado del análisis">
             <h3 className="text-xl font-semibold">
-              2. Resultado del análisis
+              2. {esTecnico ? 'Resultado del análisis' : 'Resultado de la lectura'}
             </h3>
 
             <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
@@ -262,7 +335,13 @@ function App() {
                 )}
 
                 <span className="break-all font-semibold">
-                  {estado}
+                  {esTecnico
+                    ? estado
+                    : aceptado
+                      ? 'Documento leído. Comprueba los datos.'
+                      : estado === 'REVISION_MANUAL'
+                        ? 'Necesita revisión por parte del centro.'
+                        : 'No se ha completado la lectura del documento.'}
                 </span>
               </div>
 
@@ -276,7 +355,7 @@ function App() {
               </p>
             </div>
 
-            {nitidez && (
+            {esTecnico && nitidez && (
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
                 <h4 className="mb-4 font-semibold">
                   Análisis de nitidez
@@ -289,7 +368,7 @@ function App() {
               </div>
             )}
 
-            {datos && (
+            {esTecnico && datos && (
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
                 <h4 className="mb-4 font-semibold">
                   Datos extraídos
@@ -312,7 +391,54 @@ function App() {
               </div>
             )}
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+            {formulario && (
+              <section className="rounded-2xl border border-teal-900/70 bg-slate-900 p-6" aria-label="Formulario de matrícula">
+                <h4 className="mb-2 text-lg font-semibold">3. Comprueba tus datos</h4>
+                <p className="mb-5 text-sm text-slate-400">
+                  Estos datos los ha leído una IA. Revísalos y corrige los errores antes de utilizarlos en la matrícula.
+                </p>
+                <form onSubmit={confirmarDatos} className="space-y-5">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {CAMPOS_MATRICULA.map(([campo, etiqueta]) => (
+                    <label key={campo} className="block text-sm text-slate-300">
+                      <span className="mb-1 block">{etiqueta}</span>
+                      <input
+                        type="text"
+                        name={campo}
+                        value={formulario[campo]}
+                        onChange={(event) => {
+                          setConfirmado(false)
+                          setFormulario((actual) => ({
+                            ...actual,
+                            [campo]: event.target.value,
+                          }))
+                        }}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-teal-400"
+                      />
+                    </label>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button type="submit" disabled={cargando || confirmado}
+                      className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-3 font-semibold text-slate-950 hover:bg-teal-400 disabled:cursor-not-allowed disabled:opacity-50">
+                      <ClipboardCheck size={19} /> {confirmado ? 'Datos confirmados' : 'Confirmar mis datos'}
+                    </button>
+                    <p className="text-xs text-slate-400">Obligatorios: tipo, número, nombre y apellidos.</p>
+                  </div>
+                  {confirmado && (
+                    <div role="status" className="rounded-xl border border-teal-700 bg-teal-950/40 p-4">
+                      <p className="flex items-center gap-2 font-semibold text-teal-300"><CheckCircle2 size={19} /> Datos confirmados en esta pantalla</p>
+                      <p className="mt-2 text-sm text-slate-300">Has confirmado los datos para la demostración. No se ha enviado una matrícula ni guardado tus correcciones.</p>
+                    </div>
+                  )}
+                </form>
+                <p className="mt-5 text-sm text-amber-300">
+                  Demostración: las correcciones y la confirmación no se envían ni se guardan. El workflow de prueba puede guardar la extracción original.
+                </p>
+              </section>
+            )}
+
+            {esTecnico && <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h4 className="flex items-center gap-2 font-semibold">
                   <FileJson size={20} className="text-teal-400" />
@@ -344,7 +470,7 @@ function App() {
                   {JSON.stringify(resultado, null, 2)}
                 </pre>
               )}
-            </div>
+            </div>}
           </section>
         )}
 
